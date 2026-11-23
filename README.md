@@ -18,7 +18,7 @@ cd port-forwarding-manager
 python pfm.py          # 브라우저가 http://127.0.0.1:8765/ 로 열립니다
 ```
 
-- **필요한 것:** Python 3.10 이상, `ssh` 클라이언트, 키 기반 인증(ssh-agent 포함)
+- **필요한 것:** Python 3.10 이상, `ssh` 클라이언트, 키 기반 인증(ssh-agent 포함). 아직 키가 없으면 UI의 **키 등록**으로 만들 수 있습니다.
 - 파일 브라우저를 쓰려면 서버에 `python3`가 있어야 합니다. 서버에 따로 설치할 것은 없습니다.
 - `Ctrl+C`로 끄면 열려 있던 터널도 모두 함께 닫힙니다.
 
@@ -48,6 +48,25 @@ python pfm.py          # 브라우저가 http://127.0.0.1:8765/ 로 열립니다
   - 이름이 겹치면 건너뛰기 / 둘 다 유지 / 덮어쓰기 중에서 고릅니다.
   - 임시 이름으로 다 쓴 뒤에 바꾸므로, 업로드가 실패해도 반쯤 쓰인 파일이 남지 않습니다.
 - **단축키:** `↑↓` 이동, `Enter` 열기, `Backspace` 상위 폴더, `/` 찾기, `.` 숨김 파일, `Ctrl+L` 경로 입력, `Alt+←/→` 뒤로/앞으로
+
+### 🔑 SSH 키 등록
+비밀번호로만 접속되는 서버를 키 인증으로 바꿔 줍니다. 상단의 **키 등록**을 누르면 세 단계로 진행합니다.
+1. **키:** 이 호스트에 ssh가 쓰는 키(`ssh -G`의 `IdentityFile`)가 있으면 그대로 씁니다. 없으면 `~/.ssh/id_ed25519`에 암호 없는 ed25519 키를 만듭니다. ssh가 기본으로 시도하는 경로라서 config를 고칠 필요가 없습니다. config에 `IdentityFile`이 따로 적혀 있으면 그 경로에 만듭니다.
+2. **서버에 등록:** 새 터미널 창을 열어 ssh로 접속하고, 공개 키를 서버의 `~/.ssh/authorized_keys`에 추가합니다. 같은 키가 이미 있으면 다시 넣지 않고 권한(700/600)도 맞춥니다. 호스트 키 확인(yes)과 비밀번호는 그 창에만 입력하므로 pfm에는 전달되지 않습니다.
+3. **접속 확인:** `BatchMode=yes`로 다시 접속해 비밀번호 없이 되는지 확인합니다.
+
+터미널 창은 Windows에서는 새 콘솔, macOS에서는 Terminal.app, Linux에서는 `x-terminal-emulator`·`gnome-terminal` 등으로 엽니다. 창을 열 수 없을 때(SSH 세션, WSL 등)는 **직접 하기**에 나온 명령을 복사해 실행하세요.
+
+```powershell
+# Windows PowerShell (ssh-copy-id가 없음)
+ssh-keygen -t ed25519
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh <host> "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"
+```
+```bash
+# macOS / Linux
+ssh-keygen -t ed25519 && ssh-copy-id <host>
+```
+서버가 리눅스/유닉스(sh)일 때만 동작합니다. Windows 서버는 `administrators_authorized_keys` 규칙이 달라 직접 등록해야 합니다.
 
 ### ✏️ ssh config 편집
 - 사이드바의 `config`를 누르면 열립니다. 줄 번호와 문법 강조(`Host`/`Match`, 옵션, 주석, 포워딩)를 보여 줍니다.
@@ -91,7 +110,7 @@ python pfm.py [--port 8765] [--ssh PATH] [--ssh-config PATH] [--data-dir ~/.pfm]
 ## 보안
 
 - **웹 UI:** `127.0.0.1`에서만 열립니다. `Host`와 `Origin` 헤더를 검사해 DNS 리바인딩이나 다른 사이트에서 오는 요청을 막습니다.
-- **ssh 접속:** `BatchMode=yes`로 실행하므로 비밀번호를 묻는 호스트는 오류로 표시됩니다. 키 기반 인증을 쓰세요.
+- **ssh 접속:** `BatchMode=yes`로 실행하므로 비밀번호를 묻는 호스트는 오류로 표시됩니다. 키 기반 인증을 쓰세요(**키 등록** 참고).
 - **원격 파일 미리보기:** 샌드박스(CSP `sandbox`)를 걸어 응답하므로, 파일 안의 스크립트가 실행되지 않습니다. PDF는 브라우저 뷰어가 샌드박스 안에서 열리지 않아 예외입니다.
 
 ## 저장 위치
@@ -100,7 +119,7 @@ python pfm.py [--port 8765] [--ssh PATH] [--ssh-config PATH] [--data-dir ~/.pfm]
 ## 테스트
 
 ```bash
-python -m unittest test_core
+python -m unittest test_core test_sshkey
 ```
 
 ## 라이선스

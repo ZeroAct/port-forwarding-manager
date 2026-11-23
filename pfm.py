@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, unquote
 
 import core
 import fileapi
+import sshkey
 from remotefs import REMOTE_CMD, AgentPool, RemoteError
 
 HERE = Path(__file__).resolve().parent
@@ -496,6 +497,49 @@ class App:
                 "-o", "ConnectTimeout=15", "-o", "ServerAliveInterval=30",
                 "-o", "LogLevel=ERROR", alias, REMOTE_CMD]
 
+    # ---- ssh key setup ----
+    def _key_status_file(self, alias: str) -> Path:
+        return self.mgr.run_dir / f"keyinstall-{hashlib.sha1(alias.encode()).hexdigest()[:12]}.json"
+
+    def _known_alias(self, alias: str):
+        if alias not in {h["alias"] for h in self.hosts()}:
+            raise ValueError(f"ssh config에 없는 호스트입니다: {alias}")
+
+    def key_view(self, alias: str) -> dict:
+        self._known_alias(alias)
+        key = sshkey.pick_key(self.mgr.ssh_bin, self.ssh_config, alias)
+        return {"key": key, "keygen": bool(sshkey.keygen_bin(self.mgr.ssh_bin)),
+                "manual": sshkey.manual_command(alias, key["path"]),
+                "install": sshkey.read_status(self._key_status_file(alias))}
+
+    def key_generate(self, alias: str) -> dict:
+        self._known_alias(alias)
+        key = sshkey.pick_key(self.mgr.ssh_bin, self.ssh_config, alias)
+        if not key["exists"]:
+            if key.get("blocked"):
+                raise ValueError(f"{key['path']} 파일은 있지만 .pub 파일이 없어 쓸 수 없습니다")
+            try:
+                sshkey.generate(self.mgr.ssh_bin, key["path"])
+            except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+                raise ValueError(f"키를 만들지 못했습니다: {e}")
+        return self.key_view(alias)
+
+    def key_install(self, alias: str) -> dict:
+        self._known_alias(alias)
+        key = sshkey.pick_key(self.mgr.ssh_bin, self.ssh_config, alias)
+        if not key["exists"]:
+            raise ValueError("먼저 키를 만드세요")
+        err = sshkey.open_install_window(self.mgr.ssh_bin, self.ssh_config, alias, key["pub"],
+                                         self._key_status_file(alias))
+        return {"ok": err is None, "error": err, "manual": sshkey.manual_command(alias, key["path"])}
+
+    def key_test(self, alias: str) -> dict:
+        self._known_alias(alias)
+        res = sshkey.test_login(self.mgr.ssh_bin, self.ssh_config, alias)
+        if res["ok"]:
+            self._key_status_file(alias).unlink(missing_ok=True)
+        return res
+
     def hosts(self) -> list[dict]:
         hosts = core.parse_ssh_config(self.ssh_config) if self.ssh_config.exists() else []
         for h in hosts:
@@ -646,6 +690,11 @@ def make_handler(app: App):
                     return self._send(200, app.read_ssh_config())
                 except (ValueError, OSError) as e:
                     return self._send(400, {"error": str(e)})
+            if len(parts) == 3 and parts[:2] == ["api", "keys"]:
+                try:
+                    return self._send(200, app.key_view(parts[2]))
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
             if len(parts) == 4 and parts[:2] == ["api", "tunnels"] and parts[3] == "log":
                 return self._send(200, {"log": list(app.mgr.get(parts[2]).log)})
             self._send(404, {"error": "not found"})
@@ -706,6 +755,14 @@ def make_handler(app: App):
                 if action == "stop":
                     app.mgr.get(alias).stop()
                     return self._send(200, {"ok": True})
+            if len(parts) == 4 and parts[:2] == ["api", "keys"]:
+                fn = {"generate": app.key_generate, "install": app.key_install,
+                      "test": app.key_test}.get(parts[3])
+                if fn:
+                    try:
+                        return self._send(200, fn(parts[2]))
+                    except ValueError as e:
+                        return self._send(400, {"error": str(e)})
             if parts == ["api", "tunnels", "stop-all"]:
                 app.mgr.stop_all()
                 return self._send(200, {"ok": True})

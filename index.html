@@ -390,6 +390,24 @@ table.csv td.n { color: var(--faint); text-align: right; background: var(--bg); 
 .modal p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
 .modal ul { margin: 0 0 16px; padding: 8px 12px; list-style: none; background: var(--bg); border-radius: 8px; max-height: 160px; overflow: auto; font: 12px/1.7 var(--mono); }
 .modal .row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.modal.wide { width: 560px; }
+.ks-step { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 4px 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+.ks-step .n { width: 22px; height: 22px; border-radius: 50%; background: var(--bg); color: var(--muted); display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.ks-step .n svg.i { width: 13px; height: 13px; stroke-width: 2.6; }
+.ks-step.done .n { background: var(--ok); color: #fff; }
+.ks-step.bad .n { background: var(--err); color: #fff; }
+.ks-step b { font-size: 13px; align-self: center; }
+.ks-step .d { grid-column: 2; font-size: 12.5px; color: var(--muted); min-width: 0; }
+.ks-step .d code, .ks-pub { font: 12px var(--mono); word-break: break-all; }
+.ks-step .d .bad { color: var(--err); }
+.ks-step .d .ok { color: var(--ok); }
+.ks-step .d pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; font: 11.5px/1.5 var(--mono); color: var(--err); max-height: 120px; overflow: auto; }
+.ks-step .acts { grid-column: 2; display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.ks-pub { display: flex; gap: 6px; align-items: center; margin-top: 4px; padding: 4px 4px 4px 8px; background: var(--bg); border-radius: 6px; color: var(--text); }
+.ks-pub span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ks-manual { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; margin-bottom: 12px; }
+.ks-manual summary { cursor: pointer; }
+.ks-manual p { margin: 6px 0 4px; font-size: 12px; }
 
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
   padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 60; }
@@ -484,6 +502,7 @@ table.csv td.n { color: var(--faint); text-align: right; background: var(--bg); 
       <button role="tab" data-tab="ports" aria-selected="true">포트 포워딩</button>
       <button role="tab" data-tab="files" aria-selected="false">파일</button>
     </div>
+    <button class="ghost" id="keyBtn" title="SSH 키를 만들고 이 서버에 등록 (비밀번호 없이 접속)"><svg class="i"><use href="#i-lock"/></svg><span class="lbl">키 등록</span></button>
   </div>
 
   <!-- ================= ports ================= -->
@@ -2036,6 +2055,124 @@ $("cfgCancel").onclick = $("cfgClose").onclick = () => CfgEd.close();
 $("cfgPathBtn").onclick = () => { if (CfgEd.close()) editPaths("sshConfig"); };
 $("cfgBg").addEventListener("keydown", (e) => { if (e.key === "Escape" && e.target !== CfgEd.ta) { e.preventDefault(); CfgEd.close(); } });
 window.addEventListener("beforeunload", (e) => { if (!$("cfgBg").hidden && CfgEd.dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+// =====================================================================
+// ssh key setup
+// =====================================================================
+const KeySetup = {
+  alias: null, view: null, test: null, testing: false, waiting: false, err: "", timer: null, closeFn: null,
+  async open(alias = S.alias) {
+    if (!alias) return;
+    Object.assign(this, { alias, view: null, test: null, err: "", waiting: false });
+    const bg = $("modalBg"), m = $("modal");
+    m.classList.add("wide");
+    m.innerHTML = `<h3>SSH 키 등록 · ${esc(alias)}</h3><p>불러오는 중…</p>`;
+    bg.classList.add("show");
+    const key = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); this.close(); } };
+    document.addEventListener("keydown", key, true);
+    bg.onclick = (e) => { if (e.target === bg) this.close(); };
+    this.closeFn = () => { bg.classList.remove("show"); m.classList.remove("wide"); document.removeEventListener("keydown", key, true); };
+    try { this.view = await api("GET", `/api/keys/${enc(alias)}`); }
+    catch (e) { this.err = e.message; }
+    const inst = this.view?.install;
+    if (inst && ["waiting", "running"].includes(inst.state) && Date.now() / 1000 - inst.t < 600) this.watch();
+    this.render();
+    this.runTest();
+  },
+  close() {
+    clearTimeout(this.timer); this.timer = null; this.waiting = false;
+    this.closeFn?.(); this.closeFn = null; this.alias = null;
+    $("keyBtn").focus();
+  },
+  async act(fn) {
+    this.err = "";
+    try { await fn(); } catch (e) { this.err = e.message; }
+    this.render();
+  },
+  async runTest() {
+    const alias = this.alias;
+    this.testing = true; this.render();
+    let res;
+    try { res = await api("POST", `/api/keys/${enc(alias)}/test`); } catch (e) { res = { ok: false, error: e.message }; }
+    if (alias !== this.alias) return;
+    this.test = res; this.testing = false;
+    if (res.ok && this.waiting) { this.waiting = false; clearTimeout(this.timer); }
+    this.render();
+    if (res.ok) poll();
+  },
+  watch() {
+    this.waiting = true;
+    clearTimeout(this.timer);
+    const alias = this.alias;
+    const tick = async () => {
+      if (alias !== this.alias || !this.waiting) return;
+      try {
+        const v = await api("GET", `/api/keys/${enc(alias)}`);
+        if (alias !== this.alias) return;
+        this.view = v;
+        const st = v.install?.state;
+        if (st === "done") { this.waiting = false; this.render(); this.runTest(); return; }
+        if (st === "failed") { this.waiting = false; this.err = "등록하지 못했습니다. 열린 창의 메시지를 확인하세요."; this.render(); return; }
+        if (!st) { this.waiting = false; this.render(); return; }
+      } catch {}
+      this.timer = setTimeout(tick, 1500);
+    };
+    this.timer = setTimeout(tick, 1500);
+  },
+  render() {
+    if (!this.alias) return;
+    const m = $("modal"), v = this.view, k = v?.key, t = this.test, inst = v?.install?.state;
+    const step = (n, cls, title, body, acts = "") =>
+      `<div class="ks-step ${cls}"><span class="n">${cls === "done" ? icon("check") : n}</span><b>${title}</b><div class="d">${body}</div>${acts ? `<div class="acts">${acts}</div>` : ""}</div>`;
+    let s1 = "", s2 = "";
+    if (k) {
+      s1 = k.exists
+        ? step(1, "done", "키", `<code>${esc(k.path)}</code><div class="ks-pub"><span title="${esc(k.pub)}">${esc(k.pub)}</span>
+            <button class="icon ghost" data-k="copy" title="공개 키 복사">${icon("copy")}</button></div>`)
+        : k.blocked
+          ? step(1, "bad", "키", `<span class="bad"><code>${esc(k.path)}</code> 파일은 있지만 짝이 되는 <code>.pub</code> 파일이 없습니다.</span>
+              ssh config에서 이 호스트의 <code>IdentityFile</code>을 확인하세요.`)
+          : step(1, "", "키", `아직 없습니다. <code>${esc(k.path)}</code>에 ed25519 키를 만듭니다 (암호 없음).
+              ${v.keygen ? "" : '<br><span class="bad">ssh-keygen을 찾을 수 없습니다.</span>'}`,
+              `<button class="${t?.ok ? "" : "primary"}" data-k="gen"${v.keygen ? "" : " disabled"}>키 만들기</button>`);
+      const reg = this.waiting
+        ? `새 창이 열렸습니다. 처음 접속하는 서버라면 <b>yes</b>를, 이어서 <b>비밀번호</b>를 그 창에 입력하세요. 끝나면 여기서 자동으로 확인합니다…`
+        : inst === "done" ? `<span class="ok">서버에 등록했습니다.</span>`
+        : `새 터미널 창에서 ssh로 접속해 공개 키를 서버의 <code>~/.ssh/authorized_keys</code>에 추가합니다. 비밀번호는 그 창에만 입력하고, pfm에는 전달되지 않습니다.`;
+      s2 = step(2, inst === "done" ? "done" : inst === "failed" && !this.waiting ? "bad" : "", "서버에 등록", reg,
+        k.exists ? `<button class="${t?.ok ? "" : "primary"}" data-k="install"${this.waiting ? " disabled" : ""}>${this.waiting ? "등록 창에서 기다리는 중…" : "등록 창 열기"}</button>` : "");
+    }
+    const testBody = this.testing ? "비밀번호 없이 접속되는지 확인하는 중…"
+      : !t ? "" : t.ok ? `<span class="ok">비밀번호 없이 접속됩니다.</span> 터널과 파일 브라우저를 쓸 수 있습니다${inst === "done" ? "." : " (따로 등록하지 않아도 됩니다)."}`
+      : `<span class="bad">아직 비밀번호 없이 접속되지 않습니다.</span>${t.hostKey ? " 서버 호스트 키를 아직 받지 않았습니다. 등록 창에서 yes를 입력하면 해결됩니다." : ""}<pre>${esc(t.error || "")}</pre>`;
+    const s3 = step(3, t?.ok ? "done" : t && !this.testing ? "bad" : "", "접속 확인", testBody,
+      `<button data-k="test"${this.testing ? " disabled" : ""}>다시 확인</button>`);
+    const manualOpen = m.querySelector(".ks-manual")?.open;
+    m.innerHTML = `<h3>SSH 키 등록 · ${esc(this.alias)}</h3>
+      <p>키를 서버에 한 번 등록해 두면 터널과 파일 브라우저가 비밀번호 없이 접속합니다.</p>
+      ${s1}${s2}${s3}
+      ${this.err ? `<div class="err" style="margin:4px 0 12px">${esc(this.err)}</div>` : ""}
+      ${v ? `<details class="ks-manual"${manualOpen ? " open" : ""}><summary>직접 하기 (터미널 명령)</summary>
+        <p>창이 열리지 않거나 직접 하고 싶다면 터미널에서 실행하세요.</p>
+        <div class="ks-pub"><span title="${esc(v.manual)}">${esc(v.manual)}</span><button class="icon ghost" data-k="copyManual" title="명령 복사">${icon("copy")}</button></div></details>` : ""}
+      <div class="row"><button data-k="close">닫기</button></div>`;
+    const on = (name, f) => { const b = m.querySelector(`[data-k="${name}"]`); if (b) b.onclick = f; };
+    on("close", () => this.close());
+    on("copy", () => copyText(k.pub, "공개 키 복사됨"));
+    on("copyManual", () => copyText(v.manual, "명령 복사됨"));
+    on("test", () => this.runTest());
+    on("gen", () => this.act(async () => {
+      this.view = await api("POST", `/api/keys/${enc(this.alias)}/generate`); toast("키를 만들었습니다");
+    }));
+    on("install", () => this.act(async () => {
+      const r = await api("POST", `/api/keys/${enc(this.alias)}/install`);
+      if (!r.ok) { this.err = r.error; this.openManual = true; return; }
+      this.test = null; this.watch();
+    }));
+    if (this.openManual) { this.openManual = false; m.querySelector(".ks-manual")?.setAttribute("open", ""); }
+  },
+};
+$("keyBtn").onclick = () => KeySetup.open();
 
 // re-read hosts after the ssh config changed
 async function refreshHosts() {
