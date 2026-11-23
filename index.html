@@ -1,0 +1,1884 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Port Forwarding Manager</title>
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #fff; --text: #1d2330; --muted: #6b7385; --faint: #9aa1af; --line: #e3e6eb;
+  --accent: #2f6fed; --accent-weak: #e9f0fe; --ok: #1a9b5b; --warn: #c78a00; --err: #d23c3c;
+  --input: #fff; --hover: #f6f7f9; --sel: #e6eefd; --mark: #ffe58a;
+  --k-folder: #d99a1e; --k-code: #2f6fed; --k-image: #1a9b5b; --k-video: #b5487d; --k-audio: #8a5cd6;
+  --k-archive: #a5662a; --k-pdf: #d23c3c; --k-file: #7b8394;
+  --shadow: 0 8px 28px rgba(20, 25, 35, .16);
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121519; --panel: #1b1f26; --text: #e5e7eb; --muted: #959cab; --faint: #6c7383; --line: #2b313b;
+    --accent: #5b8ff9; --accent-weak: #1f2d47; --ok: #3cc47c; --warn: #e0a72a; --err: #f06565;
+    --input: #151920; --hover: #21262e; --sel: #233453; --mark: #6b5a12;
+    --k-folder: #e7b04a; --k-code: #6f9cff; --k-image: #3cc47c; --k-video: #e173a8; --k-audio: #ad8af0;
+    --k-archive: #d39556; --k-pdf: #f06565; --k-file: #959cab;
+    --shadow: 0 8px 28px rgba(0, 0, 0, .5);
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+.app { display: grid; grid-template-columns: 256px minmax(0, 1fr); min-height: 100vh; }
+.main { min-width: 0; padding: 16px 20px 32px; max-width: 1500px; width: 100%; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round; flex: none; }
+/* sidebar */
+.side { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; background: var(--panel);
+  border-right: 1px solid var(--line); min-width: 0; z-index: 30; }
+.brand { display: flex; align-items: center; gap: 8px; padding: 16px 16px 12px; font-weight: 700; font-size: 14px; }
+.brand .logo { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; }
+.brand .logo svg { width: 14px; height: 14px; stroke-width: 2.2; }
+.side-search { position: relative; margin: 0 12px 6px; display: flex; align-items: center; }
+.side-search svg { position: absolute; left: 9px; color: var(--faint); pointer-events: none; }
+.side-search input[type=text] { width: 100%; padding-left: 30px; padding-right: 50px; background: var(--bg); }
+.side-search kbd { position: absolute; right: 8px; color: var(--faint); pointer-events: none; }
+.side-sum { display: flex; justify-content: space-between; padding: 6px 16px; font-size: 11px; color: var(--muted); }
+.side-sum b { color: var(--ok); font-weight: 600; }
+.hosts { flex: 1; overflow: auto; padding: 2px 8px 8px; outline: none; }
+.host-item { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 8px; width: 100%;
+  text-align: left; border: 0; background: none; border-radius: 8px; padding: 7px 8px; margin-bottom: 1px; color: var(--text); }
+.host-item:hover:not(:disabled) { background: var(--hover); border: 0; }
+.host-item.sel, .host-item.sel:hover:not(:disabled) { background: var(--sel); }
+.host-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.host-item .tx { min-width: 0; }
+.host-item .nm { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.host-item .sub { font: 11px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; margin-top: 1px; }
+.host-item mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.host-item .cnt { font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; font-variant-numeric: tabular-nums; }
+.host-item .cnt:empty { display: none; }
+.host-item.on .cnt { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+.dot { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--faint); justify-self: center; }
+.dot.running { background: var(--ok); border-color: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); }
+.dot.starting, .dot.reconnecting { background: var(--warn); border-color: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+.dot.error { background: var(--err); border-color: var(--err); }
+@keyframes pulse { 50% { opacity: .35; } }
+.hosts .none { color: var(--muted); font-size: 12px; text-align: center; padding: 20px 8px; }
+.side-foot { border-top: 1px solid var(--line); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.side-foot button { justify-content: center; }
+.side-foot .meta { color: var(--faint); font-size: 11px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.paths { display: flex; flex-direction: column; gap: 1px; margin: 0 -6px; }
+.paths .ph { display: flex; align-items: center; gap: 6px; padding: 0 6px 2px; font-size: 11px; color: var(--faint); }
+.paths .ph .os { font-weight: 600; color: var(--muted); }
+.paths button.pr { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 6px; width: 100%; padding: 4px 6px;
+  border: 0; background: none; border-radius: 6px; text-align: left; justify-content: initial; font-size: 11px; color: var(--muted); }
+.paths button.pr:hover { background: var(--hover); color: var(--text); }
+.paths button.pr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.paths .pr .k { color: var(--faint); }
+.paths .pr .v { font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.paths .pr .v bdi { direction: ltr; unicode-bidi: isolate; }
+.paths .pr .src { font-size: 10px; padding: 0 5px; border-radius: 999px; background: var(--bg); color: var(--faint); }
+.paths .pr .src.saved { color: var(--accent); background: var(--accent-weak); }
+.paths .pr.bad .v { color: var(--err); }
+.paths .pr.bad .src { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+.modal label.fld { display: block; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
+.modal label.fld input { display: block; width: 100%; margin-top: 4px; font: 12.5px var(--mono); }
+.modal .fld small { display: block; margin-top: 4px; font-weight: 400; color: var(--faint); word-break: break-all; }
+.modal .fld small.bad { color: var(--err); }
+.modal .err { color: var(--err); font-size: 12px; margin: -4px 0 10px; min-height: 0; }
+.scrim { display: none; }
+/* main top bar */
+.topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; min-height: 40px; flex-wrap: wrap; }
+.topbar .menu-btn { display: none; }
+.hosttitle { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.hosttitle h1 { margin: 0; font-size: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+select, input[type=text] { font: inherit; color: var(--text); background: var(--input);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+select:focus, input[type=text]:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.danger { color: var(--err); }
+button.ghost { border-color: transparent; background: none; color: var(--muted); padding: 4px 6px; }
+button.ghost:hover:not(:disabled) { color: var(--text); background: var(--hover); border-color: transparent; }
+button.icon { padding: 6px; color: var(--muted); }
+button.icon:hover:not(:disabled) { color: var(--text); }
+button.icon[aria-pressed=true] { color: var(--accent); background: var(--accent-weak); border-color: transparent; }
+button:disabled { opacity: .45; cursor: default; }
+
+.hostinfo { color: var(--muted); font-family: var(--mono); font-size: 12px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); padding: 5px 14px; border-radius: 6px; font-weight: 600; }
+.seg button[aria-selected=true] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.seg button:hover:not([aria-selected=true]) { color: var(--text); }
+
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+  padding: 3px 10px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); }
+.badge::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.badge.running::before { background: var(--ok); }
+.badge.starting::before, .badge.reconnecting::before { background: var(--warn); }
+.badge.error::before { background: var(--err); }
+.statusmsg { margin: -2px 0 12px; font-size: 12px; color: var(--err); word-break: break-all; }
+.statusmsg:empty { display: none; }
+.statusmsg.info { color: var(--warn); }
+
+/* ports */
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.toolbar h2 { font-size: 15px; margin: 0; }
+.toolbar .grow { flex: 1; }
+.save-state { font-size: 12px; color: var(--muted); }
+table.rules { width: 100%; border-collapse: collapse; }
+table.rules th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 4px; border-bottom: 1px solid var(--line); }
+table.rules td { padding: 4px; vertical-align: top; }
+tr.rule:hover td { background: var(--hover); }
+tr.rule.disabled input[type=text] { opacity: .45; }
+table.rules td input[type=text] { width: 100%; font-family: var(--mono); font-size: 13px; }
+td.note input { font-family: inherit !important; }
+td.arrow { color: var(--muted); text-align: center; padding-top: 10px !important; }
+td.open { padding-top: 7px !important; white-space: nowrap; }
+td.open .wrapo { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+a.lh { display: inline-flex; align-items: center; gap: 4px; font: 12.5px var(--mono); color: var(--accent); text-decoration: none;
+  padding: 3px 6px; border-radius: 5px; border: 1px solid transparent; }
+a.lh:hover { background: var(--accent-weak); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+a.lh:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+a.lh svg { width: 12px; height: 12px; opacity: .7; }
+table.rules:not(.live) a.lh { color: var(--muted); }
+tr.rule.disabled a.lh, tr.rule.invalid a.lh { opacity: .45; }
+button.more { font-size: 11px; padding: 1px 7px; border-radius: 999px; color: var(--muted); font-variant-numeric: tabular-nums; }
+button.more[aria-expanded=true] { border-color: var(--accent); color: var(--accent); }
+.pop { position: fixed; z-index: 55; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+  padding: 10px; width: 300px; max-height: 320px; display: flex; flex-direction: column; gap: 8px; }
+.pop .hd { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.pop .grid { overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 2px; }
+.pop .grid a.lh { justify-content: center; }
+td.chk { padding-top: 9px !important; text-align: center; }
+/* "server-side target host" lives folded under the remote port */
+td.rport .via { display: inline-flex; align-items: center; gap: 3px; margin: 2px 0 0 2px; padding: 0 4px; border: 0; background: none;
+  font-size: 11px; line-height: 16px; color: var(--faint); border-radius: 4px; visibility: hidden; }
+td.rport .via b { font: 11px var(--mono); font-weight: 600; color: var(--muted); }
+td.rport .via svg { width: 10px; height: 10px; }
+td.rport .via:hover { color: var(--text); background: var(--hover); }
+tr.rule:hover td.rport .via, tr.rule:focus-within td.rport .via { visibility: visible; }
+td.rport .via.custom { visibility: visible; color: var(--warn); }
+td.rport .via.custom b { color: var(--warn); }
+td.rport .via-edit { display: none; margin-top: 3px; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+td.rport.editing .via { display: none; }
+td.rport.editing .via-edit { display: flex; }
+td.rport .via-edit input[type=text] { padding: 2px 6px; font-size: 12px; }
+tr.rule.invalid input.local, tr.rule.invalid input.remote { border-color: var(--err); }
+tr.err td { padding: 0 4px 6px; color: var(--err); font-size: 12px; }
+.empty { color: var(--muted); text-align: center; padding: 24px; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+.hint code, kbd { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-family: var(--mono); font-size: 11px; }
+.summary { display: flex; gap: 16px; align-items: center; margin-top: 12px; font-size: 13px; flex-wrap: wrap; }
+.summary label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.summary .spacer { flex: 1; }
+#bulkBox { display: none; margin-bottom: 12px; }
+#bulkBox.open { display: block; }
+textarea { width: 100%; min-height: 70px; font: 13px var(--mono); color: var(--text);
+  background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 8px; resize: vertical; }
+#bulkBox .row { display: flex; gap: 8px; margin-top: 6px; justify-content: flex-end; }
+details summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+pre#log { margin: 10px 0 0; max-height: 260px; overflow: auto; font: 12px/1.5 var(--mono);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; white-space: pre-wrap; word-break: break-all; }
+
+/* ---------- file browser ---------- */
+.fb { padding: 0; overflow: hidden; position: relative; display: flex; flex-direction: column;
+  height: max(460px, calc(100vh - 86px)); }
+.fb-bar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.fb-nav { display: flex; gap: 2px; }
+.crumbs { flex: 1; min-width: 200px; display: flex; align-items: center; gap: 2px; padding: 3px 6px;
+  border: 1px solid transparent; border-radius: 6px; cursor: text; overflow: hidden; height: 34px; }
+.crumbs:hover { border-color: var(--line); }
+.crumbs button { border: 0; background: none; padding: 3px 6px; border-radius: 5px; color: var(--muted); font-size: 13px; max-width: 220px; }
+.crumbs button span { overflow: hidden; text-overflow: ellipsis; }
+.crumbs button:hover { background: var(--hover); color: var(--text); }
+.crumbs button:last-of-type { color: var(--text); font-weight: 600; }
+.crumbs .sep { color: var(--faint); flex: none; width: 12px; height: 12px; }
+.crumbs .ell { color: var(--faint); padding: 0 2px; }
+.crumbs input { flex: 1; border: 0; padding: 4px 2px; font-family: var(--mono); font-size: 13px; background: none; }
+.crumbs input:focus { outline: none; }
+.crumbs.editing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.fb-search { position: relative; display: flex; align-items: center; }
+.fb-search svg { position: absolute; left: 8px; color: var(--faint); pointer-events: none; }
+.fb-search input { padding-left: 28px; width: 180px; }
+.fb-body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 0 var(--pv-w, 44%); min-height: 0; }
+.fb-list { position: relative; overflow: auto; outline: none; }
+.split { position: relative; z-index: 5; width: 0; border-left: 1px solid var(--line); outline: none; }
+.split::before { content: ""; position: absolute; top: 0; bottom: 0; left: -5px; width: 10px; cursor: col-resize; }
+.split::after { content: ""; position: absolute; top: 0; bottom: 0; left: -2px; width: 3px; background: var(--accent);
+  opacity: 0; transition: opacity .12s; pointer-events: none; }
+.split:hover::after, .split:focus-visible::after, .split.dragging::after { opacity: 1; transition-delay: .1s; }
+.split.dragging::after { transition-delay: 0s; }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe, body.resizing video, body.resizing img { pointer-events: none; }
+.fb-head, .fb-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 84px 112px 34px; align-items: center; gap: 8px; padding: 0 10px 0 12px; }
+.fb-head { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--line); height: 32px; font-size: 12px; color: var(--muted); }
+.fb-head button { border: 0; background: none; padding: 2px 0; color: inherit; font-size: 12px; font-weight: 600; gap: 2px; }
+.fb-head button.r { justify-self: end; }
+.fb-head button:hover { color: var(--text); }
+.fb-head .arrow { font-size: 10px; color: var(--accent); }
+.fb-row { height: 32px; cursor: default; user-select: none; border-radius: 0; font-size: 13px; }
+.fb-row:hover { background: var(--hover); }
+.fb-row.sel { background: var(--sel); }
+.fb-list:focus-visible .fb-row.sel { box-shadow: inset 2px 0 0 var(--accent); }
+.fb-row.drop { background: var(--accent-weak); box-shadow: inset 0 0 0 2px var(--accent); }
+.fb-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.fb-row .name .txt { overflow: hidden; text-overflow: ellipsis; }
+.fb-row .name .lnk { color: var(--faint); font-size: 11px; flex: none; }
+.fb-row.dim .name .txt { opacity: .55; }
+.fb-row .size, .fb-row .mtime { color: var(--muted); font-size: 12px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fb-row .act { opacity: 0; }
+.fb-row:hover .act, .fb-row.sel .act { opacity: 1; }
+.fb-row .act button { padding: 4px; }
+.fb-row mark { background: var(--mark); color: inherit; border-radius: 2px; }
+.kind { display: grid; place-items: center; }
+.kind.folder { color: var(--k-folder); } .kind.code { color: var(--k-code); } .kind.image { color: var(--k-image); }
+.kind.video { color: var(--k-video); } .kind.audio { color: var(--k-audio); } .kind.archive { color: var(--k-archive); }
+.kind.pdf { color: var(--k-pdf); } .kind.file, .kind.binary, .kind.other { color: var(--k-file); }
+.kind.folder svg { fill: color-mix(in srgb, currentColor 22%, transparent); }
+.fb-list.loading .fb-rows { opacity: .45; transition: opacity .15s .1s; }
+.fb-progress { position: sticky; top: 32px; height: 2px; z-index: 3; overflow: hidden; margin-bottom: -2px; }
+.fb-list.loading .fb-progress::after { content: ""; position: absolute; inset: 0; width: 30%; background: var(--accent);
+  animation: slide 1s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(400%); } }
+.fb-msg { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center;
+  color: var(--muted); padding: 48px 24px; min-height: 240px; }
+.fb-msg svg { width: 34px; height: 34px; stroke-width: 1.4; color: var(--faint); }
+.fb-msg.error svg { color: var(--err); }
+.fb-msg .title { color: var(--text); font-weight: 600; }
+.fb-msg .detail { font-size: 12px; max-width: 460px; word-break: break-word; }
+.spinner { width: 22px; height: 22px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.newrow input { width: 100%; padding: 3px 6px; font-size: 13px; }
+.newrow .err { color: var(--err); font-size: 11px; grid-column: 2 / -1; }
+.fb-status { display: flex; gap: 12px; align-items: center; padding: 6px 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); min-height: 30px; flex-wrap: wrap; }
+.fb-status .grow { flex: 1; }
+.pill { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); }
+.pill.warn { color: var(--warn); }
+
+/* preview */
+.pv { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); }
+.pv-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); min-height: 50px; }
+.pv-head .kind svg { width: 20px; height: 20px; }
+.pv-title { flex: 1; min-width: 0; }
+.pv-title .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-title .sub { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-tools { display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.pv-tools:empty { display: none; }
+.pv-tools .grow { flex: 1; }
+.pv-tools .seg button { padding: 2px 10px; font-size: 12px; }
+.pv-body { flex: 1; overflow: auto; min-height: 0; position: relative; }
+.pv-back { display: none; }
+.banner { margin: 0; padding: 6px 12px; font-size: 12px; background: var(--accent-weak); color: var(--text); border-bottom: 1px solid var(--line); }
+.code { font: 12.5px/1.6 var(--mono); padding: 8px 0; counter-reset: ln; min-width: max-content; }
+.code.wrap { min-width: 0; }
+.code .l { display: flex; padding-right: 12px; }
+.code .l::before { counter-increment: ln; content: counter(ln); flex: none; width: 4.2em; padding-right: 12px; text-align: right;
+  color: var(--faint); user-select: none; }
+.code .l span { white-space: pre; }
+.code.wrap .l span { white-space: pre-wrap; word-break: break-all; }
+.hex { font: 12px/1.6 var(--mono); padding: 10px 12px; margin: 0; color: var(--muted); white-space: pre; }
+.imgbox { min-height: 100%; display: grid; place-items: center; padding: 16px;
+  background-color: var(--bg);
+  background-image: linear-gradient(45deg, var(--line) 25%, transparent 25%), linear-gradient(-45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--line) 75%), linear-gradient(-45deg, transparent 75%, var(--line) 75%);
+  background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
+.imgbox img { max-width: 100%; max-height: calc(100vh - 330px); cursor: zoom-in; box-shadow: 0 1px 6px rgba(0,0,0,.2); }
+.imgbox.actual { display: block; overflow: auto; }
+.imgbox.actual img { max-width: none; max-height: none; cursor: zoom-out; }
+.media { display: grid; place-items: center; padding: 16px; min-height: 100%; background: #000; }
+.media video { max-width: 100%; max-height: calc(100vh - 300px); }
+.media.audio { background: none; }
+.media audio { width: 100%; max-width: 480px; }
+iframe.pdf { width: 100%; height: 100%; border: 0; display: block; }
+.md { padding: 12px 20px 24px; line-height: 1.65; max-width: 860px; overflow-wrap: anywhere; }
+.md h1, .md h2 { border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.md h1 { font-size: 1.6em; } .md h2 { font-size: 1.3em; } .md h3 { font-size: 1.1em; }
+.md code { font-family: var(--mono); font-size: .9em; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.md pre { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow: auto; }
+.md pre code { border: 0; padding: 0; background: none; }
+.md blockquote { margin: 0; padding: 0 12px; color: var(--muted); border-left: 3px solid var(--line); }
+.md a { color: var(--accent); }
+.md table { border-collapse: collapse; } .md td, .md th { border: 1px solid var(--line); padding: 4px 8px; }
+table.csv { border-collapse: collapse; font-size: 12px; font-family: var(--mono); }
+table.csv th, table.csv td { border: 1px solid var(--line); padding: 4px 8px; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+table.csv th { position: sticky; top: 0; background: var(--bg); font-weight: 600; }
+table.csv td.n { color: var(--faint); text-align: right; background: var(--bg); position: sticky; left: 0; }
+.meta-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; padding: 14px 16px; }
+.meta-grid dt { color: var(--muted); }
+.meta-grid dd { margin: 0; font-family: var(--mono); font-size: 12px; word-break: break-all; }
+.pv-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--muted); padding: 24px; text-align: center; }
+.pv-empty svg { width: 40px; height: 40px; stroke-width: 1.2; color: var(--faint); }
+.keys { display: grid; grid-template-columns: auto auto; gap: 6px 12px; font-size: 12px; text-align: left; margin-top: 8px; }
+.keys kbd { justify-self: end; }
+
+/* drop overlay */
+.drop-ov { position: absolute; inset: 0; z-index: 20; display: none; place-items: center; pointer-events: none;
+  background: color-mix(in srgb, var(--accent) 10%, transparent); border: 2px dashed var(--accent); border-radius: 10px; }
+.drop-ov.show { display: grid; }
+.drop-ov div { background: var(--panel); padding: 14px 20px; border-radius: 10px; box-shadow: var(--shadow); text-align: center; }
+.drop-ov svg { width: 28px; height: 28px; color: var(--accent); }
+.drop-ov b { font-family: var(--mono); }
+
+/* upload tray */
+.tray { position: fixed; right: 16px; bottom: 16px; width: 360px; max-width: calc(100vw - 32px); z-index: 40;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); display: none; overflow: hidden; }
+.tray.show { display: block; }
+.tray-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; font-weight: 600; font-size: 13px; }
+.tray-head .grow { flex: 1; }
+.tray-head .sub { color: var(--muted); font-weight: 400; font-size: 12px; }
+.tray-total { height: 3px; background: var(--line); }
+.tray-total div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+.tray-list { max-height: 280px; overflow: auto; border-top: 1px solid var(--line); }
+.tray.collapsed .tray-list { display: none; }
+.up { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.up:last-child { border-bottom: 0; }
+.up .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.up .st { color: var(--muted); grid-column: 1; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up .bar { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.up .bar div { height: 100%; background: var(--accent); width: 0; }
+.up.done .bar div { background: var(--ok); }
+.up.fail .st { color: var(--err); }
+.up.fail .bar div { background: var(--err); }
+.up .btns { grid-row: 1 / 3; grid-column: 2; display: flex; align-items: center; }
+
+/* modal */
+.modal-bg { position: fixed; inset: 0; background: rgba(10, 14, 20, .45); z-index: 50; display: none; place-items: center; padding: 16px; }
+.modal-bg.show { display: grid; }
+.modal { background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); width: 440px; max-width: 100%; padding: 20px; }
+.modal h3 { margin: 0 0 6px; font-size: 16px; }
+.modal p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+.modal ul { margin: 0 0 16px; padding: 8px 12px; list-style: none; background: var(--bg); border-radius: 8px; max-height: 160px; overflow: auto; font: 12px/1.7 var(--mono); }
+.modal .row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
+  padding: 8px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; z-index: 60; }
+.toast.show { opacity: .95; }
+[hidden] { display: none !important; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: fixed; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); transform: translateX(-100%);
+    transition: transform .2s ease; visibility: hidden; }
+  .side.open { transform: none; box-shadow: var(--shadow); visibility: visible; }
+  .scrim { position: fixed; inset: 0; background: rgba(10, 14, 20, .4); z-index: 29; }
+  .side.open + .scrim { display: block; }
+  .topbar .menu-btn { display: inline-flex; }
+  .main { padding: 12px 12px 24px; }
+  .fb-body { grid-template-columns: 1fr; }
+  .split { display: none; }
+  .pv { position: fixed; inset: 0; z-index: 45; display: none; }
+  .pv.open { display: flex; }
+  .pv-back { display: inline-flex; }
+  .fb-head, .fb-row { grid-template-columns: 22px minmax(0, 1fr) 70px 34px; }
+  .fb-head .c-mtime, .fb-row .mtime { display: none; }
+  .fb-search input { width: 130px; }
+}
+@media (max-width: 700px) {
+  table.rules thead { display: none; }
+  tr.rule { display: grid; grid-template-columns: 28px 1fr 1fr 28px; gap: 4px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  tr.rule td.arrow { display: none; }
+  tr.rule td.open { grid-column: 2 / 4; padding-top: 0 !important; grid-row: 2; }
+  tr.rule td.note { grid-column: 2 / 4; grid-row: 3; }
+  tr.rule td.del { grid-column: 4; grid-row: 1; }
+  .fb-bar .lbl { display: none; }
+  .hosttitle .hostinfo { display: none; }
+
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M10 12.5 8 14.5l2 2M14 12.5l2 2-2 2"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m21 16-5-5-9 9"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m10 9.5 5 2.5-5 2.5z"/></symbol>
+    <symbol id="i-audio" viewBox="0 0 24 24"><path d="M9 18V6l11-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M11 4v2M11 8v2M11 12v2"/><rect x="9.5" y="15" width="3" height="3" rx=".8"/></symbol>
+    <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M8.5 16.5c2-1 4.5-4 4.5-6.5 0-1.5-1.5-1.5-1.5 0 0 3 3 5.5 4.5 5.5"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></symbol>
+    <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2.2h7.5A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/><path d="M12 10.5v6M9 13.5h6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v5h-5"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3.5 11 8.5-7 8.5 7M6 9.5V20h12V9.5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-retry" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+<aside class="side" id="side" aria-label="호스트">
+  <div class="brand"><span class="logo"><svg class="i"><use href="#i-fwd"/></svg></span>Port Forwarding Manager</div>
+  <label class="side-search"><svg class="i"><use href="#i-search"/></svg>
+    <input type="text" id="hostFilter" placeholder="호스트 찾기" aria-label="호스트 찾기" spellcheck="false"><kbd>Ctrl K</kbd></label>
+  <div class="side-sum" id="sideSum"></div>
+  <nav class="hosts" id="hostList" role="listbox" aria-label="호스트 목록"></nav>
+  <div class="side-foot">
+    <button class="danger" id="stopAll" title="실행 중인 모든 터널 중지">모든 터널 중지</button>
+    <div class="paths" id="paths"></div>
+    <div class="meta" id="meta"></div>
+  </div>
+</aside>
+<div class="scrim" id="scrim"></div>
+
+<main class="main">
+  <div class="topbar">
+    <button class="icon ghost menu-btn" id="menuBtn" title="호스트 목록" aria-label="호스트 목록 열기">
+      <svg class="i" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <div class="hosttitle"><h1 id="hostName"></h1><span class="hostinfo" id="hostinfo"></span></div>
+    <div class="seg" role="tablist" aria-label="보기">
+      <button role="tab" data-tab="ports" aria-selected="true">포트 포워딩</button>
+      <button role="tab" data-tab="files" aria-selected="false">파일</button>
+    </div>
+  </div>
+
+  <!-- ================= ports ================= -->
+  <section id="view-ports">
+    <div class="panel">
+      <div class="toolbar">
+        <h2>포트 목록</h2>
+        <span class="badge" id="badge">중지됨</span>
+        <button class="primary" id="toggle">시작</button>
+        <button id="applyBtn" class="primary" hidden>변경 적용 (재시작)</button>
+        <span class="grow"></span>
+        <span class="save-state" id="saveState"></span>
+        <button id="addRule">+ 규칙</button>
+        <button id="bulkBtn">일괄 추가</button>
+        <button id="importBtn" title="ssh config의 LocalForward를 가져와 구간으로 묶습니다">ssh config에서 가져오기</button>
+        <button id="exportBtn" title="ssh config에 붙여 넣을 LocalForward 줄을 복사">LocalForward 복사</button>
+      </div>
+      <div class="statusmsg" id="statusmsg"></div>
+
+      <div id="bulkBox">
+        <textarea id="bulkText" placeholder="쉼표·공백·줄바꿈으로 구분&#10;예) 9701, 9702, 9720-9739, 8080:80, 15432:db.internal:5432, 18000-18010:8000-8010"></textarea>
+        <div class="row"><button id="bulkCancel">취소</button><button class="primary" id="bulkAdd">추가</button></div>
+      </div>
+
+      <table class="rules">
+        <thead><tr>
+          <th style="width:32px"></th><th style="width:24%" title="접속한 서버에서 열려 있는 포트">원격 포트</th><th style="width:24px"></th>
+          <th style="width:18%" title="내 PC에서 열 포트">로컬 포트</th><th style="width:190px">열기</th>
+          <th style="min-width:120px">메모</th><th style="width:32px"></th>
+        </tr></thead>
+        <tbody id="rules"></tbody>
+      </table>
+
+      <div class="summary">
+        <span id="portCount"></span>
+        <span class="spacer"></span>
+        <label title="pfm을 실행하면 이 호스트의 터널을 바로 시작합니다"><input type="checkbox" id="autoStart"> pfm 시작 시 자동 실행</label>
+        <label><input type="checkbox" id="autoReconnect"> 끊기면 자동 재연결</label>
+      </div>
+      <div class="hint">
+        서버의 <b>원격 포트</b>를 내 PC의 <b>로컬 포트</b>로 가져옵니다. <code>8080</code> 단일, <code>9720-9739</code> 구간.
+        로컬 포트를 비우면 같은 번호를 쓰고, 구간끼리는 같은 개수로 1:1 매핑됩니다 (<code>8000-8010</code> → <code>18000-18010</code>).
+        원격 포트 아래 <b>서버 기준</b> 주소는 기본 <code>localhost</code>(= 접속한 서버 자신)이며,
+        서버 너머 다른 장비로 연결할 때만 바꿉니다. Enter: 다음 칸 / 마지막 행에서 새 규칙.
+      </div>
+    </div>
+
+    <div class="panel">
+      <details id="logDetails">
+        <summary>ssh 로그</summary>
+        <pre id="log">(없음)</pre>
+      </details>
+    </div>
+  </section>
+
+  <!-- ================= files ================= -->
+  <section id="view-files" hidden>
+    <div class="panel fb" id="fb">
+      <div class="fb-bar">
+        <div class="fb-nav">
+          <button class="icon ghost" id="fbBack" title="뒤로 (Alt+←)"><svg class="i"><use href="#i-back"/></svg></button>
+          <button class="icon ghost" id="fbFwd" title="앞으로 (Alt+→)"><svg class="i"><use href="#i-fwd"/></svg></button>
+          <button class="icon ghost" id="fbUp" title="상위 폴더 (Backspace)"><svg class="i"><use href="#i-up"/></svg></button>
+          <button class="icon ghost" id="fbRefresh" title="새로고침 (F5)"><svg class="i"><use href="#i-refresh"/></svg></button>
+        </div>
+        <div class="crumbs" id="crumbs" title="클릭해서 경로 입력 (Ctrl+L)"></div>
+        <label class="fb-search"><svg class="i"><use href="#i-search"/></svg>
+          <input type="text" id="fbFilter" placeholder="이 폴더에서 찾기  /" aria-label="현재 폴더에서 이름 필터"></label>
+        <button class="icon" id="fbHidden" aria-pressed="false" title="숨김 파일 표시 (.)"><svg class="i"><use href="#i-eye"/></svg></button>
+        <button id="fbNewFolder" title="새 폴더"><svg class="i"><use href="#i-folder-plus"/></svg><span class="lbl">새 폴더</span></button>
+        <button class="primary" id="fbUpload" title="파일 업로드 (또는 끌어다 놓기)"><svg class="i"><use href="#i-upload"/></svg><span class="lbl">업로드</span></button>
+        <input type="file" id="fbFile" multiple hidden>
+      </div>
+      <div class="fb-body">
+        <div class="fb-list" id="fbList" tabindex="0" aria-label="파일 목록">
+          <div class="fb-head" id="fbHead">
+            <span></span>
+            <button data-sort="name">이름 <span class="arrow"></span></button>
+            <button data-sort="size" class="r">크기 <span class="arrow"></span></button>
+            <button data-sort="mtime" class="r c-mtime">수정한 날짜 <span class="arrow"></span></button>
+            <span></span>
+          </div>
+          <div class="fb-progress"></div>
+          <div class="fb-rows" id="fbRows"></div>
+        </div>
+        <div class="split" id="split" role="separator" aria-orientation="vertical" tabindex="0"
+             aria-label="목록과 미리보기 크기 조절" title="드래그해서 크기 조절 · 더블클릭: 기본 크기"></div>
+        <aside class="pv" id="pv" aria-label="미리보기"></aside>
+      </div>
+      <div class="fb-status" id="fbStatus"></div>
+      <div class="drop-ov" id="dropOv"><div><svg class="i"><use href="#i-upload"/></svg><div id="dropText"></div></div></div>
+    </div>
+  </section>
+</main>
+</div>
+
+<div class="tray" id="tray">
+  <div class="tray-head">
+    <svg class="i"><use href="#i-upload"/></svg>
+    <span id="trayTitle">업로드</span><span class="sub" id="traySub"></span>
+    <span class="grow"></span>
+    <button class="icon ghost" id="trayCollapse" title="접기"><svg class="i"><use href="#i-chev-down"/></svg></button>
+    <button class="icon ghost" id="trayClose" title="닫기"><svg class="i"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="tray-total"><div id="trayBar"></div></div>
+  <div class="tray-list" id="trayList"></div>
+</div>
+
+<div class="modal-bg" id="modalBg"><div class="modal" role="dialog" aria-modal="true" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const enc = encodeURIComponent;
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const icon = (name, cls = "i") => `<svg class="${cls}"><use href="#i-${name}"/></svg>`;
+// UI prefs: kept in localStorage AND on the pfm server (profiles.json "ui"), because
+// localStorage is per origin and pfm may come up on a different port next time.
+const store = {
+  server: {}, pending: {}, timer: null,
+  get(k, d) {
+    if (k in this.server) return this.server[k];
+    try { const v = localStorage.getItem("pfm." + k); return v == null ? d : JSON.parse(v); } catch { return d; }
+  },
+  set(k, v) {
+    this.server[k] = v;
+    try { localStorage.setItem("pfm." + k, JSON.stringify(v)); } catch {}
+    this.pending[k] = v;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.flush(), 500);
+  },
+  flush() {
+    const body = this.pending; this.pending = {};
+    if (Object.keys(body).length) fetch("/api/ui", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive: true }).catch(() => {});
+  },
+};
+window.addEventListener("pagehide", () => store.flush());
+const S = { hosts: [], profiles: {}, tunnels: {}, alias: null, tab: "ports", dirtyRunning: {}, saveTimer: null };
+
+async function api(method, path, body) {
+  const opt = { method, headers: {} };
+  if (method !== "GET") { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body || {}); }
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(data.error || r.statusText); e.code = data.code; e.status = r.status; throw e; }
+  return data;
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2400);
+}
+async function copyText(text, label = "복사됨") {
+  try { await navigator.clipboard.writeText(text); toast(label); }
+  catch { prompt("복사하세요", text); }
+}
+const host = () => S.hosts.find(h => h.alias === S.alias);
+const prof = () => S.profiles[S.alias];
+const tun = (a = S.alias) => S.tunnels[a] || { state: "stopped", message: "" };
+const STATE_LABEL = { stopped: "중지됨", starting: "연결 중", running: "실행 중", reconnecting: "재연결 대기", error: "오류" };
+
+// =====================================================================
+// host bar & tabs
+// =====================================================================
+const addrOf = (h) => `${h.user ? h.user + "@" : ""}${h.hostname || h.alias}${h.port ? ":" + h.port : ""}`;
+function hl(text, q) {
+  if (!q) return esc(text);
+  const at = text.toLowerCase().indexOf(q);
+  return at < 0 ? esc(text) : esc(text.slice(0, at)) + "<mark>" + esc(text.slice(at, at + q.length)) + "</mark>" + esc(text.slice(at + q.length));
+}
+function visibleHosts() {
+  const q = $("hostFilter").value.trim().toLowerCase();
+  return q ? S.hosts.filter(h => h.alias.toLowerCase().includes(q) || addrOf(h).toLowerCase().includes(q)) : S.hosts;
+}
+function renderHosts() {
+  const list = $("hostList"), q = $("hostFilter").value.trim().toLowerCase();
+  const vis = visibleHosts();
+  const key = vis.map(h => h.alias + "|" + addrOf(h)).join(",") + "#" + q;
+  if (list.dataset.key !== key) { // rebuild only when the set changes, so focus/hover survive polling
+    list.dataset.key = key;
+    list.innerHTML = vis.length ? vis.map(h => `
+      <button class="host-item" role="option" data-alias="${esc(h.alias)}" tabindex="-1">
+        <span class="dot"></span>
+        <span class="tx"><span class="nm">${hl(h.alias, q)}</span><span class="sub">${hl(addrOf(h), q)}</span></span>
+        <span class="cnt"></span></button>`).join("")
+      : `<div class="none">'${esc(q)}'와 일치하는 호스트가 없습니다</div>`;
+  }
+  for (const el of list.querySelectorAll(".host-item")) {
+    const a = el.dataset.alias, t = tun(a), p = S.profiles[a];
+    const on = ["running", "starting", "reconnecting"].includes(t.state);
+    el.classList.toggle("sel", a === S.alias);
+    el.classList.toggle("on", on);
+    el.setAttribute("aria-selected", String(a === S.alias));
+    el.tabIndex = a === S.alias || (!vis.some(h => h.alias === S.alias) && el === list.querySelector(".host-item")) ? 0 : -1;
+    el.querySelector(".dot").className = "dot " + t.state;
+    const n = p ? p.portCount : 0;
+    el.querySelector(".cnt").textContent = n ? String(n) : "";
+    el.title = `${a} — ${STATE_LABEL[t.state] || t.state}${n ? ` · 포트 ${n}개` : ""}${t.message ? "\n" + t.message : ""}`;
+  }
+  const running = S.hosts.filter(h => tun(h.alias).state === "running").length;
+  $("sideSum").innerHTML = `<span>호스트 ${S.hosts.length}</span><span>${running ? `<b>● 실행 중 ${running}</b>` : "실행 중인 터널 없음"}</span>`;
+}
+function renderHostInfo() {
+  const h = host(); if (!h) return;
+  $("hostName").textContent = h.alias;
+  $("hostinfo").textContent = addrOf(h);
+  document.title = `${h.alias} · Port Forwarding Manager`;
+}
+function selectHost(alias, opts = {}) {
+  if (!S.hosts.some(h => h.alias === alias)) return;
+  const changed = alias !== S.alias;
+  S.alias = alias;
+  store.set("host", alias);
+  renderHosts();
+  if (opts.focus) $("hostList").querySelector(`.host-item[data-alias="${CSS.escape(alias)}"]`)?.focus();
+  if (opts.close) closeSide();
+  if (!changed) return;
+  $("saveState").textContent = "";
+  $("bulkBox").classList.remove("open");
+  renderHostInfo(); renderStatus(); renderRules(); loadLog();
+  FB.hostChanged();
+}
+const openSide = () => { $("side").classList.add("open"); setTimeout(() => $("hostList").querySelector(".host-item.sel, .host-item")?.focus(), 50); };
+const closeSide = () => $("side").classList.remove("open");
+$("menuBtn").onclick = openSide;
+$("scrim").onclick = closeSide;
+$("hostList").addEventListener("click", (e) => {
+  const b = e.target.closest(".host-item"); if (b) selectHost(b.dataset.alias, { close: true });
+});
+$("hostList").addEventListener("keydown", (e) => {
+  const items = [...$("hostList").querySelectorAll(".host-item")]; if (!items.length) return;
+  let i = items.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") i = Math.min(items.length - 1, i + 1);
+  else if (e.key === "ArrowUp") { if (i <= 0) { e.preventDefault(); $("hostFilter").focus(); return; } i--; }
+  else if (e.key === "Home") i = 0;
+  else if (e.key === "End") i = items.length - 1;
+  else if (e.key === "Escape") { closeSide(); return; }
+  else return;
+  e.preventDefault();
+  selectHost(items[i].dataset.alias, { focus: true });
+});
+$("hostFilter").addEventListener("input", renderHosts);
+$("hostFilter").addEventListener("keydown", (e) => {
+  const first = $("hostList").querySelector(".host-item");
+  if (e.key === "Enter" && first) { e.preventDefault(); selectHost(first.dataset.alias, { close: true }); e.target.value = ""; renderHosts(); }
+  else if (e.key === "ArrowDown" && first) { e.preventDefault(); selectHost(first.dataset.alias, { focus: true }); }
+  else if (e.key === "Escape") { e.target.value = ""; renderHosts(); e.target.blur(); closeSide(); }
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    if (matchMedia("(max-width: 860px)").matches) $("side").classList.add("open");
+    $("hostFilter").focus(); $("hostFilter").select();
+  }
+});
+function setTab(tab, push = true) {
+  S.tab = tab; store.set("tab", tab);
+  document.querySelectorAll(".seg [data-tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
+  $("view-ports").hidden = tab !== "ports";
+  $("view-files").hidden = tab !== "files";
+  if (push) history.replaceState(null, "", tab === "files" ? "#files" : "#");
+  if (tab === "files") FB.show();
+}
+document.querySelectorAll(".seg [data-tab]").forEach(b => b.onclick = () => setTab(b.dataset.tab));
+
+// =====================================================================
+// ports
+// =====================================================================
+function specCount(s) {
+  const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(s || "");
+  if (!m) return 0;
+  const a = +m[1], b = m[2] ? +m[2] : a;
+  return b >= a ? b - a + 1 : 0;
+}
+function rule(local = "", remoteHost = "", remote = "") { return { local, remoteHost, remote, enabled: true, note: "" }; }
+function parseBulk(text) {
+  const rules = [], bad = [];
+  const isSpec = (x) => /^\d+(-\d+)?$/.test(x);
+  for (const tok of text.split(/[\s,;]+/).filter(Boolean)) {
+    const p = tok.split(":");
+    if (p.length === 1 && isSpec(p[0])) rules.push(rule(p[0]));
+    else if (p.length === 2 && isSpec(p[0]) && isSpec(p[1])) rules.push(rule(p[0], "", p[0] === p[1] ? "" : p[1]));
+    else if (p.length === 3 && isSpec(p[0]) && isSpec(p[2])) rules.push(rule(p[0], p[1], p[0] === p[2] ? "" : p[2]));
+    else bad.push(tok);
+  }
+  return { rules, bad };
+}
+function renderStatus() {
+  const t = tun();
+  const b = $("badge");
+  b.className = "badge " + t.state;
+  b.textContent = STATE_LABEL[t.state] || t.state;
+  const active = ["running", "starting", "reconnecting"].includes(t.state);
+  $("toggle").textContent = active ? "중지" : "시작";
+  $("toggle").className = active ? "danger" : "primary";
+  const msg = $("statusmsg");
+  msg.textContent = t.message || "";
+  msg.className = "statusmsg" + (t.state === "error" ? "" : " info");
+  $("applyBtn").hidden = !(active && S.dirtyRunning[S.alias]);
+  const live = t.state === "running";
+  if ($("rules").closest("table").classList.contains("live") !== live) {
+    $("rules").closest("table").classList.toggle("live", live);
+    document.querySelectorAll("#rules a.lh").forEach(el => el.title = linkTitle());
+  }
+}
+function normRule(r) {
+  const l = (r.local || "").trim(), m = (r.remote || "").trim();
+  if (l && !m) { r.remote = l; r.local = ""; } else if (l && l === m) r.local = "";
+  return r;
+}
+function renderRules(focus) {
+  const p = prof(), tb = $("rules");
+  p.rules.forEach(normRule);
+  tb.innerHTML = "";
+  if (!p.rules.length) tb.innerHTML = `<tr><td colspan="7" class="empty">포트 규칙이 없습니다. "+ 규칙" 또는 "일괄 추가"로 추가하세요.</td></tr>`;
+  p.rules.forEach((r, i) => {
+    const err = p.errors && p.errors[i];
+    const tr = document.createElement("tr");
+    tr.className = "rule" + (r.enabled ? "" : " disabled") + (err ? " invalid" : "");
+    tr.innerHTML = `
+      <td class="chk"><input type="checkbox" data-f="enabled" ${r.enabled ? "checked" : ""} title="사용"></td>
+      <td class="rport"><input type="text" class="remote" data-f="remote" aria-label="원격 포트">
+        <button type="button" class="via" data-via title="서버에서 연결할 대상 주소 — 보통 서버 자신(localhost)"></button>
+        <div class="via-edit">서버 기준<input type="text" data-f="remoteHost" placeholder="localhost" spellcheck="false" aria-label="서버 기준 대상 주소"></div></td>
+      <td class="arrow">→</td>
+      <td><input type="text" class="local" data-f="local" aria-label="로컬 포트"></td>
+      <td class="open"></td>
+      <td class="note"><input type="text" data-f="note" placeholder="메모"></td>
+      <td class="del"><button class="ghost" data-del title="삭제">${icon("x")}</button></td>`;
+    for (const inp of tr.querySelectorAll("input[type=text]")) inp.value = r[inp.dataset.f] || "";
+    syncRow(tr, r);
+    tr.dataset.i = i;
+    tb.appendChild(tr);
+    if (err) {
+      const e = document.createElement("tr"); e.className = "err";
+      e.innerHTML = `<td></td><td colspan="6"></td>`; e.lastChild.textContent = err;
+      tb.appendChild(e);
+    }
+  });
+  $("autoReconnect").checked = p.autoReconnect !== false;
+  $("autoStart").checked = p.autoStart !== false;
+  renderCount();
+  if (focus) {
+    const el = tb.querySelector(`tr.rule[data-i="${focus.i}"] input[data-f="${focus.f}"]`);
+    if (el) { el.focus(); if (focus.sel != null) el.setSelectionRange(focus.sel, focus.sel); }
+  }
+}
+// either port may be empty = "same number as the other side"
+const effLocal = (r) => (r.local || "").trim() || (r.remote || "").trim();
+const effRemote = (r) => (r.remote || "").trim() || (r.local || "").trim();
+const isDefaultHost = (v) => !v || v.trim() === "" || v.trim() === "localhost";
+function syncRow(tr, r) {
+  const rem = tr.querySelector("input.remote"), loc = tr.querySelector("input.local");
+  rem.placeholder = (r.local || "").trim() || "예: 9720-9739";
+  loc.placeholder = "같은 번호";
+  const via = tr.querySelector(".via"), host = (r.remoteHost || "").trim();
+  via.classList.toggle("custom", !isDefaultHost(host));
+  via.innerHTML = `서버 기준 <b>${esc(host || "localhost")}</b> <svg class="i"><use href="#i-chev-down"/></svg>`;
+  renderOpen(tr.querySelector(".open"), r);
+}
+// localhost:<local port> links, opened in a new window
+const LINK_ICON = `<svg class="i" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/></svg>`;
+const lhLink = (p) => `<a class="lh" href="http://localhost:${p}/" target="_blank" rel="noopener noreferrer">localhost:${p}${LINK_ICON}</a>`;
+function parseLocal(spec) {
+  const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(spec || "");
+  if (!m) return null;
+  const a = +m[1], b = m[2] ? +m[2] : a;
+  return a >= 1 && b <= 65535 && b >= a && b - a < 1000 ? [a, b] : null;
+}
+function linkTitle() {
+  return ["running"].includes(tun().state) ? "새 창에서 열기" : "새 창에서 열기 — 터널이 실행 중이 아니면 접속되지 않습니다";
+}
+function renderOpen(td, r) {
+  const rng = parseLocal(effLocal(r));
+  if (!rng) { td.innerHTML = ""; return; }
+  const [a, b] = rng;
+  td.innerHTML = `<span class="wrapo">${lhLink(a)}${b > a ? `<button class="more" data-more aria-expanded="false" title="구간의 모든 포트 보기 (${a}–${b})">+${b - a}</button>` : ""}</span>`;
+  td.querySelectorAll("a.lh").forEach(el => el.title = linkTitle());
+}
+const Pop = {
+  el: null, btn: null,
+  open(btn, a, b) {
+    this.close();
+    const el = document.createElement("div");
+    el.className = "pop"; el.setAttribute("role", "dialog"); el.setAttribute("aria-label", `localhost:${a}-${b}`);
+    const ports = []; for (let p = a; p <= b; p++) ports.push(p);
+    el.innerHTML = `<div class="hd"><span>localhost:${a}–${b}</span><span>${ports.length}개 · 클릭하면 새 창</span></div>
+      <div class="grid">${ports.map(p => `<a class="lh" href="http://localhost:${p}/" target="_blank" rel="noopener noreferrer" title="${linkTitle()}">:${p}</a>`).join("")}</div>`;
+    document.body.appendChild(el);
+    const r = btn.getBoundingClientRect(), w = el.offsetWidth, hgt = el.offsetHeight;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w));
+    const top = r.bottom + 6 + hgt > window.innerHeight - 8 ? Math.max(8, r.top - 6 - hgt) : r.bottom + 6;
+    Object.assign(el.style, { left: left + "px", top: top + "px" });
+    btn.setAttribute("aria-expanded", "true");
+    this.el = el; this.btn = btn;
+    el.querySelector("a")?.focus();
+  },
+  close() {
+    if (!this.el) return;
+    this.el.remove(); this.btn?.setAttribute("aria-expanded", "false");
+    this.el = this.btn = null;
+  },
+};
+document.addEventListener("mousedown", (e) => { if (Pop.el && !Pop.el.contains(e.target) && e.target !== Pop.btn) Pop.close(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && Pop.el) { const b = Pop.btn; Pop.close(); b?.focus(); } });
+window.addEventListener("resize", () => Pop.close());
+document.addEventListener("scroll", (e) => { if (Pop.el && !Pop.el.contains(e.target)) Pop.close(); }, true);
+function renderCount() {
+  const p = prof();
+  const n = p.rules.filter(r => r.enabled).reduce((s, r) => s + specCount(effLocal(r)), 0);
+  $("portCount").textContent = `활성 포트 ${n}개 · 규칙 ${p.rules.length}개`;
+}
+function changed(opts = {}) {
+  S.dirtyRunning[S.alias] = true;
+  $("saveState").textContent = "저장 중…";
+  clearTimeout(S.saveTimer);
+  const alias = S.alias;
+  S.saveTimer = setTimeout(() => save(alias), opts.now ? 0 : 400);
+  renderStatus();
+}
+async function save(alias) {
+  const p = S.profiles[alias];
+  try {
+    const res = await api("PUT", `/api/profiles/${enc(alias)}`, { rules: p.rules, autoReconnect: p.autoReconnect, autoStart: p.autoStart !== false });
+    p.errors = res.errors; p.portCount = res.portCount;
+    if (alias === S.alias) { $("saveState").textContent = "저장됨"; refreshErrors(); }
+    renderHosts();
+  } catch (e) { $("saveState").textContent = "저장 실패: " + e.message; }
+}
+function refreshErrors() {
+  const p = prof(), tb = $("rules");
+  const rows = [...tb.querySelectorAll("tr.rule")];
+  const shown = rows.map(tr => tr.nextElementSibling?.classList.contains("err") ? tr.nextElementSibling.textContent : null);
+  const want = p.rules.map((_, i) => (p.errors && p.errors[i]) || null);
+  if (JSON.stringify(shown) === JSON.stringify(want)) return;
+  const a = document.activeElement, tr = a && a.closest && a.closest("tr.rule");
+  renderRules(tr ? { i: +tr.dataset.i, f: a.dataset.f, sel: a.selectionStart } : null);
+}
+$("rules").addEventListener("input", (e) => {
+  const tr = e.target.closest("tr.rule"); if (!tr) return;
+  const r = prof().rules[+tr.dataset.i], f = e.target.dataset.f;
+  r[f] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+  if (f === "enabled") tr.classList.toggle("disabled", !r.enabled);
+  syncRow(tr, r);
+  renderCount(); changed();
+});
+$("rules").addEventListener("click", (e) => {
+  const via = e.target.closest("[data-via]");
+  if (via) {
+    const td = via.closest("td.rport");
+    td.classList.add("editing");
+    const inp = td.querySelector('input[data-f="remoteHost"]');
+    inp.focus(); inp.select();
+    return;
+  }
+  const more = e.target.closest("[data-more]");
+  if (more) {
+    if (Pop.btn === more) { Pop.close(); return; }
+    const rng = parseLocal(effLocal(prof().rules[+more.closest("tr.rule").dataset.i]));
+    if (rng) Pop.open(more, rng[0], rng[1]);
+    return;
+  }
+  if (!e.target.closest("[data-del]")) return;
+  const i = +e.target.closest("tr.rule").dataset.i;
+  prof().rules.splice(i, 1); prof().errors?.splice(i, 1);
+  renderRules(); changed({ now: true });
+});
+$("rules").addEventListener("focusout", (e) => {
+  if (e.target.dataset?.f !== "remoteHost") return;
+  const td = e.target.closest("td.rport");
+  setTimeout(() => { if (!td.contains(document.activeElement)) td.classList.remove("editing"); }, 0);
+});
+$("rules").addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && e.target.dataset?.f === "remoteHost") {
+    e.preventDefault(); e.target.closest("td.rport").querySelector("input.remote").focus(); return;
+  }
+  if (e.key !== "Enter" || e.target.tagName !== "INPUT") return;
+  e.preventDefault();
+  const inputs = [...$("rules").querySelectorAll("input[type=text]")].filter(i => i.offsetParent !== null);
+  const idx = inputs.indexOf(e.target);
+  if (idx === inputs.length - 1 || e.ctrlKey || e.metaKey) addRule(); else inputs[idx + 1].focus();
+});
+function addRule(r = rule()) { prof().rules.push(r); renderRules({ i: prof().rules.length - 1, f: "remote" }); changed(); }
+$("addRule").onclick = () => addRule();
+$("autoReconnect").onchange = (e) => { prof().autoReconnect = e.target.checked; changed({ now: true }); };
+// autoStart only matters on the next launch, so it must not flag the running tunnel as needing a restart
+$("autoStart").onchange = (e) => { prof().autoStart = e.target.checked; save(S.alias); };
+$("bulkBtn").onclick = () => { $("bulkBox").classList.toggle("open"); $("bulkText").focus(); };
+$("bulkCancel").onclick = () => $("bulkBox").classList.remove("open");
+$("bulkAdd").onclick = () => {
+  const { rules, bad } = parseBulk($("bulkText").value);
+  if (bad.length) { toast("인식 못한 항목: " + bad.join(", ")); return; }
+  if (!rules.length) return;
+  prof().rules.push(...rules.map(normRule));
+  $("bulkText").value = ""; $("bulkBox").classList.remove("open");
+  renderRules(); changed({ now: true }); toast(`${rules.length}개 규칙 추가`);
+};
+$("bulkText").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("bulkAdd").click(); });
+$("importBtn").onclick = () => {
+  const imp = host().importRules;
+  if (!imp.length) { toast("ssh config에 이 호스트의 LocalForward가 없습니다."); return; }
+  const key = (r) => `${r.local}|${r.remoteHost || "localhost"}|${r.remote}`;
+  const have = new Set(prof().rules.map(key));
+  const add = imp.filter(r => !have.has(key(r)));
+  if (!add.length) { toast("이미 모두 들어 있습니다."); return; }
+  prof().rules.push(...add.map(r => ({ ...r })));
+  renderRules(); changed({ now: true }); toast(`${add.length}개 규칙 가져옴`);
+};
+$("exportBtn").onclick = () => {
+  const lines = [];
+  for (const r of prof().rules.filter(r => r.enabled)) {
+    const m = /^(\d+)(?:-(\d+))?$/.exec(effLocal(r)); if (!m) continue;
+    const la = +m[1], lb = m[2] ? +m[2] : la;
+    const rm = /^(\d+)(?:-(\d+))?$/.exec(effRemote(r));
+    const ra = rm ? +rm[1] : la;
+    for (let i = 0; i <= lb - la; i++) lines.push(`    LocalForward ${la + i} ${r.remoteHost || "localhost"}:${ra + i}`);
+  }
+  copyText(lines.join("\n"), `${lines.length}줄 복사됨`);
+};
+$("toggle").onclick = async () => {
+  const active = ["running", "starting", "reconnecting"].includes(tun().state);
+  $("toggle").disabled = true;
+  try { if (active) await api("POST", `/api/tunnels/${enc(S.alias)}/stop`); else await startTunnel(); }
+  catch (e) { toast(e.message); }
+  $("toggle").disabled = false; poll();
+};
+async function startTunnel() {
+  clearTimeout(S.saveTimer);
+  await save(S.alias);
+  const res = await api("POST", `/api/tunnels/${enc(S.alias)}/start`);
+  if (!res.ok) toast(res.error);
+  S.dirtyRunning[S.alias] = false;
+}
+$("applyBtn").onclick = async () => { try { await startTunnel(); } catch (e) { toast(e.message); } poll(); };
+$("stopAll").onclick = async () => { await api("POST", "/api/tunnels/stop-all"); poll(); };
+async function loadLog() {
+  if (!$("logDetails").open || S.tab !== "ports") return;
+  const { log } = await api("GET", `/api/tunnels/${enc(S.alias)}/log`);
+  const el = $("log"), atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+  el.textContent = log.length ? log.join("\n") : "(없음)";
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+$("logDetails").addEventListener("toggle", loadLog);
+
+// =====================================================================
+// file browser
+// =====================================================================
+const EXT = {
+  code: "py js mjs cjs ts tsx jsx json jsonc yaml yml toml ini cfg conf sh bash zsh fish ps1 bat c h cc cpp hpp cxx rs go java kt kts scala rb php pl lua r jl swift m mm cs fs vb sql html htm css scss sass less vue svelte xml proto gradle cmake mk make dockerfile tf hcl nix ex exs erl hs ml clj dart zig v sv vhd ipynb env gitignore gitattributes editorconfig lock",
+  text: "txt md markdown rst log csv tsv tex rtf out err",
+  image: "png jpg jpeg gif webp bmp ico svg avif tif tiff heic",
+  video: "mp4 m4v webm mov mkv avi ogv",
+  audio: "mp3 wav ogg oga m4a aac flac opus",
+  archive: "zip tar gz tgz bz2 xz 7z rar zst tbz2 txz deb rpm whl jar",
+  pdf: "pdf",
+};
+const EXT_KIND = {};
+for (const [k, list] of Object.entries(EXT)) for (const e of list.split(" ")) EXT_KIND[e] = k;
+const SPECIAL_NAMES = { makefile: "code", dockerfile: "code", license: "text", readme: "text", cmakelists: "code" };
+function extOf(name) { const i = name.lastIndexOf("."); return i > 0 ? name.slice(i + 1).toLowerCase() : ""; }
+function kindOf(e) {
+  if (e.type === "dir") return "folder";
+  if (e.type !== "file") return "other";
+  return EXT_KIND[extOf(e.name)] || SPECIAL_NAMES[e.name.toLowerCase().split(".")[0]] || "file";
+}
+const KIND_ICON = { folder: "folder", code: "code", text: "text", image: "image", video: "video", audio: "audio", archive: "archive", pdf: "pdf", file: "file", other: "file" };
+function fmtSize(n) {
+  if (n == null) return "";
+  if (n < 1024) return n + " B";
+  const u = ["KB", "MB", "GB", "TB"]; let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+  return (n < 10 ? n.toFixed(1) : Math.round(n)) + " " + u[i];
+}
+function fmtTime(sec) {
+  const d = new Date(sec * 1000), now = Date.now(), diff = (now - d) / 1000;
+  if (diff < 60) return "방금";
+  if (diff < 3600) return Math.floor(diff / 60) + "분 전";
+  if (diff < 86400 && d.getDate() === new Date().getDate()) return Math.floor(diff / 3600) + "시간 전";
+  const y = new Date(now - 86400000);
+  if (d.toDateString() === y.toDateString()) return "어제 " + d.toTimeString().slice(0, 5);
+  if (diff < 7 * 86400) return Math.floor(diff / 86400) + "일 전";
+  const p = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function fmtFull(sec) { return new Date(sec * 1000).toLocaleString("ko-KR"); }
+const joinPath = (dir, name) => dir ? `${dir}/${name}` : name;
+const parentOf = (p) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+const tilde = (p) => p ? `~/${p}` : "~";
+
+const FB = {
+  alias: null, path: "", home: "", entries: [], writable: true, truncated: false, total: 0,
+  view: [], sel: -1, loading: false, error: null, connected: {},
+  sort: store.get("fs.sort", { key: "name", dir: 1 }), hidden: store.get("fs.hidden", false),
+  back: [], fwd: [], reqId: 0, pvReq: null, pvTimer: null, newFolder: null, pvState: {},
+
+  show() {
+    if (this.alias !== S.alias) this.hostChanged();
+    else if (!this.entries.length && !this.loading) this.load(this.path);
+    setTimeout(() => $("fbList").focus({ preventScroll: true }), 0);
+  },
+  hostChanged() {
+    if (S.tab !== "files") { this.alias = null; return; }
+    this.alias = S.alias;
+    this.entries = []; this.view = []; this.sel = -1; this.back = []; this.fwd = []; this.home = "";
+    $("fbFilter").value = "";
+    this.renderPreview(null);
+    this.load(store.get("fs.path." + S.alias, ""), { first: true });
+  },
+
+  async load(path, opts = {}) {
+    const id = ++this.reqId, alias = this.alias;
+    this.loading = true; this.error = null;
+    $("fbList").classList.add("loading");
+    if (!this.connected[alias]) this.renderRows(); // first contact: show "connecting" state
+    try {
+      const r = await api("GET", `/api/fs/${enc(alias)}/list?path=${enc(path)}`);
+      if (id !== this.reqId) return;
+      this.connected[alias] = true;
+      if (opts.push && r.path !== this.path) { this.back.push(this.path); this.fwd = []; }
+      const prevPath = this.path;
+      Object.assign(this, { path: r.path, home: r.home, entries: r.entries, writable: r.writable, truncated: r.truncated, total: r.total });
+      store.set("fs.path." + alias, r.path);
+      if (prevPath !== r.path && !opts.keepFilter) $("fbFilter").value = "";
+      this.computeView();
+      // keep selection on refresh; select the folder we came from when going up
+      let want = opts.select ?? (this.view[this.sel] && prevPath === r.path ? this.view[this.sel].name : null);
+      if (want == null && prevPath.startsWith(r.path) && prevPath !== r.path) want = prevPath.slice(r.path ? r.path.length + 1 : 0).split("/")[0];
+      this.sel = want != null ? this.view.findIndex(e => e.name === want) : -1;
+      this.loading = false;
+      this.renderAll();
+      if (this.sel >= 0) { this.pvReq = null; this.scrollToSel(); this.schedulePreview(); }
+      else if (prevPath !== r.path || opts.first) this.renderPreview(null);
+    } catch (e) {
+      if (id !== this.reqId) return;
+      this.loading = false;
+      if (opts.first && e.code === "notfound" && path) return this.load("", {});
+      if (this.entries.length && this.connected[alias] && e.code !== "conn") {
+        toast(e.message); // keep current listing; just report
+      } else {
+        this.error = e;
+      }
+      this.renderAll();
+    } finally {
+      if (id === this.reqId) $("fbList").classList.remove("loading");
+    }
+  },
+  go(path, opts = {}) { return this.load(path, { push: true, ...opts }); },
+  up() { if (this.path) this.go(parentOf(this.path)); },
+  goBack() { if (!this.back.length) return; this.fwd.push(this.path); this.load(this.back.pop()); },
+  goFwd() { if (!this.fwd.length) return; this.back.push(this.path); this.load(this.fwd.pop()); },
+
+  computeView() {
+    const q = $("fbFilter").value.trim().toLowerCase();
+    const { key, dir } = this.sort;
+    let v = this.entries.filter(e => (this.hidden || !e.name.startsWith(".")) && (!q || e.name.toLowerCase().includes(q)));
+    const coll = new Intl.Collator("ko", { numeric: true, sensitivity: "base" });
+    v.sort((a, b) => {
+      const da = a.type === "dir" ? 0 : 1, db = b.type === "dir" ? 0 : 1;
+      if (da !== db) return da - db;
+      let c = 0;
+      if (key === "size") c = (a.size ?? -1) - (b.size ?? -1);
+      else if (key === "mtime") c = a.mtime - b.mtime;
+      if (!c) c = coll.compare(a.name, b.name);
+      return c * dir;
+    });
+    this.view = v;
+  },
+  renderAll() { this.renderCrumbs(); this.renderHead(); this.renderRows(); this.renderStatus(); this.renderNav(); },
+  renderNav() {
+    $("fbBack").disabled = !this.back.length; $("fbFwd").disabled = !this.fwd.length; $("fbUp").disabled = !this.path;
+    $("fbUpload").disabled = $("fbNewFolder").disabled = !this.writable || !!this.error;
+    const ro = !this.writable ? " (이 폴더는 쓰기 권한이 없습니다)" : "";
+    $("fbUpload").title = "파일 업로드 (또는 끌어다 놓기)" + ro;
+    $("fbNewFolder").title = "새 폴더" + ro;
+    $("fbHidden").setAttribute("aria-pressed", String(this.hidden));
+  },
+  renderCrumbs() {
+    const c = $("crumbs");
+    if (c.classList.contains("editing")) return;
+    const parts = this.path ? this.path.split("/") : [];
+    let html = `<button data-p="" title="${esc(this.home || "~")}">${icon("home")}<span>~</span></button>`;
+    // collapse middle segments when deep
+    const shown = parts.length > 5 ? [0, -1, ...[parts.length - 3, parts.length - 2, parts.length - 1]] : parts.map((_, i) => i);
+    for (const i of shown) {
+      html += icon("chev", "i sep");
+      if (i === -1) { html += `<span class="ell">…</span>`; continue; }
+      const p = parts.slice(0, i + 1).join("/");
+      html += `<button data-p="${esc(p)}" title="${esc(tilde(p))}"><span>${esc(parts[i])}</span></button>`;
+    }
+    c.innerHTML = html;
+  },
+  editPath() {
+    const c = $("crumbs");
+    if (c.classList.contains("editing")) return;
+    c.classList.add("editing");
+    c.innerHTML = `<input type="text" spellcheck="false" aria-label="경로">`;
+    const inp = c.firstChild;
+    inp.value = tilde(this.path) + (this.path ? "/" : "/");
+    inp.focus(); inp.select();
+    const done = (go) => {
+      if (!c.classList.contains("editing")) return;
+      c.classList.remove("editing");
+      const v = inp.value.trim();
+      this.renderCrumbs();
+      if (go && v) this.go(v.replace(/\/+$/, "") || "~");
+    };
+    inp.onkeydown = (e) => {
+      if (e.key === "Enter") { e.preventDefault(); done(true); $("fbList").focus(); }
+      if (e.key === "Escape") { e.preventDefault(); done(false); $("fbList").focus(); }
+    };
+    inp.onblur = () => done(false);
+  },
+  renderHead() {
+    for (const b of $("fbHead").querySelectorAll("[data-sort]")) {
+      b.querySelector(".arrow").textContent = b.dataset.sort === this.sort.key ? (this.sort.dir > 0 ? "▲" : "▼") : "";
+    }
+  },
+  rowHtml(e, i, q) {
+    const k = kindOf(e);
+    let name = esc(e.name);
+    if (q) {
+      const at = e.name.toLowerCase().indexOf(q);
+      if (at >= 0) name = esc(e.name.slice(0, at)) + "<mark>" + esc(e.name.slice(at, at + q.length)) + "</mark>" + esc(e.name.slice(at + q.length));
+    }
+    const lnk = e.link ? `<span class="lnk" title="${e.outside ? "홈 밖을 가리키는 링크 — 열 수 없음" : "심볼릭 링크"}">↪</span>` : "";
+    const dl = e.type === "file" || e.type === "dir"
+      ? `<button class="ghost" data-dl title="${e.type === "dir" ? "tar.gz로 다운로드" : "다운로드"}">${icon("download")}</button>` : "";
+    return `<div class="fb-row${i === this.sel ? " sel" : ""}${e.name.startsWith(".") || e.outside ? " dim" : ""}" data-i="${i}" draggable="false">
+      <span class="kind ${k}">${icon(KIND_ICON[k])}</span>
+      <span class="name"><span class="txt" title="${esc(e.name)}">${name}</span>${lnk}</span>
+      <span class="size">${e.type === "dir" ? "" : fmtSize(e.size)}</span>
+      <span class="mtime" title="${fmtFull(e.mtime)}">${fmtTime(e.mtime)}</span>
+      <span class="act">${dl}</span></div>`;
+  },
+  renderRows() {
+    const box = $("fbRows");
+    if (this.error && !this.entries.length || this.error?.code === "conn") {
+      const e = this.error;
+      const title = e.code === "conn" ? "서버에 연결할 수 없습니다" : e.code === "denied" ? "접근할 수 없는 경로" : "폴더를 열 수 없습니다";
+      box.innerHTML = `<div class="fb-msg error">${icon(e.code === "denied" ? "lock" : "alert")}
+        <div class="title">${title}</div><div class="detail">${esc(e.message)}</div>
+        <button id="fbRetry">${icon("retry")}다시 시도</button></div>`;
+      $("fbRetry").onclick = () => { this.error = null; this.load(this.path); };
+      return;
+    }
+    if (!this.connected[this.alias] && this.loading) {
+      box.innerHTML = `<div class="fb-msg"><div class="spinner"></div><div class="title">${esc(this.alias)}에 연결하는 중…</div>
+        <div class="detail">처음 열 때 ssh로 접속합니다. 이후에는 연결을 재사용합니다.</div></div>`;
+      return;
+    }
+    const q = $("fbFilter").value.trim().toLowerCase();
+    let html = "";
+    if (this.newFolder) {
+      html += `<div class="fb-row newrow sel"><span class="kind folder">${icon("folder")}</span>
+        <span class="name" style="grid-column: 2 / -1"><input type="text" id="newFolderInput" placeholder="새 폴더 이름 — Enter로 만들기, Esc로 취소" spellcheck="false"></span>
+        ${this.newFolder.error ? `<span></span><span class="err">${esc(this.newFolder.error)}</span>` : ""}</div>`;
+    }
+    html += this.view.map((e, i) => this.rowHtml(e, i, q)).join("");
+    if (!this.view.length && !this.newFolder) {
+      const hiddenCount = this.entries.filter(e => e.name.startsWith(".")).length;
+      html = q ? `<div class="fb-msg">${icon("search")}<div class="title">'${esc(q)}'와 일치하는 항목이 없습니다</div><div class="detail">Esc로 필터 지우기</div></div>`
+        : `<div class="fb-msg">${icon("folder")}<div class="title">빈 폴더</div>
+           <div class="detail">${hiddenCount ? `숨김 항목 ${hiddenCount}개가 있습니다 · ` : ""}${this.writable ? "파일을 여기로 끌어다 놓으면 업로드됩니다" : "읽기 전용 폴더"}</div></div>`;
+    }
+    box.innerHTML = html;
+    if (this.newFolder) {
+      const inp = $("newFolderInput");
+      inp.value = this.newFolder.value || "";
+      inp.focus();
+      inp.onkeydown = (ev) => {
+        if (ev.key === "Enter") { ev.preventDefault(); this.createFolder(inp.value); }
+        if (ev.key === "Escape") { ev.preventDefault(); this.newFolder = null; this.renderRows(); $("fbList").focus(); }
+      };
+      inp.oninput = () => { this.newFolder.value = inp.value; };
+      inp.onblur = () => setTimeout(() => { if (this.newFolder && !this.newFolder.busy && !inp.value.trim()) { this.newFolder = null; this.renderRows(); } }, 150);
+    }
+  },
+  renderStatus() {
+    const dirs = this.entries.filter(e => e.type === "dir").length;
+    const files = this.entries.filter(e => e.type === "file");
+    const bytes = files.reduce((s, e) => s + (e.size || 0), 0);
+    const hidden = this.hidden ? 0 : this.entries.filter(e => e.name.startsWith(".")).length;
+    const shown = this.view.length;
+    let txt = this.error && !this.entries.length ? "" :
+      `폴더 ${dirs} · 파일 ${files.length}${files.length ? ` (${fmtSize(bytes)})` : ""}`;
+    if (hidden) txt += ` · 숨김 ${hidden}개 감춤`;
+    if ($("fbFilter").value.trim()) txt += ` · 필터 결과 ${shown}개`;
+    const sel = this.view[this.sel];
+    $("fbStatus").innerHTML = `<span>${txt}</span>
+      ${this.truncated ? `<span class="pill warn" title="항목이 너무 많아 일부만 표시">처음 ${this.entries.length} / ${this.total}개만 표시</span>` : ""}
+      ${!this.writable && !this.error ? `<span class="pill" title="이 폴더에 업로드하거나 폴더를 만들 수 없습니다">${icon("lock")} 읽기 전용</span>` : ""}
+      <span class="grow"></span>
+      ${sel ? `<span>${esc(sel.name)}${sel.type === "file" ? " · " + fmtSize(sel.size) : ""}</span>` : ""}`;
+  },
+  setSel(i, opts = {}) {
+    if (!this.view.length) return;
+    i = Math.max(0, Math.min(this.view.length - 1, i));
+    if (i === this.sel && !opts.force) return;
+    const rows = $("fbRows").querySelectorAll(".fb-row[data-i]");
+    rows[this.sel]?.classList.remove("sel");
+    this.sel = i;
+    rows[i]?.classList.add("sel");
+    this.scrollToSel();
+    this.renderStatus();
+    this.schedulePreview();
+  },
+  scrollToSel() {
+    const row = $("fbRows").querySelector(`.fb-row[data-i="${this.sel}"]`);
+    if (!row) return;
+    const list = $("fbList"), head = 34;
+    const top = row.offsetTop, bottom = top + row.offsetHeight;
+    if (top < list.scrollTop + head) list.scrollTop = top - head;
+    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight;
+  },
+  open(i = this.sel) {
+    const e = this.view[i]; if (!e) return;
+    if (e.outside) { toast("홈 디렉터리 밖을 가리키는 링크라 열 수 없습니다."); return; }
+    if (e.type === "dir") this.go(joinPath(this.path, e.name));
+    else if (matchMedia("(max-width: 860px)").matches) $("pv").classList.add("open");
+  },
+  download(e) {
+    const p = joinPath(this.path, e.name);
+    const url = e.type === "dir" ? `/api/fs/${enc(this.alias)}/archive?path=${enc(p)}` : `/api/fs/${enc(this.alias)}/raw?path=${enc(p)}&dl=1`;
+    const a = document.createElement("a"); a.href = url; a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+    toast(e.type === "dir" ? `${e.name}.tar.gz 다운로드 시작 — 서버에서 압축하는 동안 기다려 주세요` : `${e.name} 다운로드 시작`);
+  },
+  startNewFolder() {
+    if (!this.writable) return;
+    this.newFolder = { value: "" };
+    $("fbList").scrollTop = 0;
+    this.renderRows();
+  },
+  async createFolder(name) {
+    name = name.trim();
+    const nf = this.newFolder;
+    if (!name) { this.newFolder = null; this.renderRows(); return; }
+    if (/[\/\0]/.test(name) || name === "." || name === "..") { nf.error = "'/'는 이름에 쓸 수 없습니다"; this.renderRows(); return; }
+    if (this.entries.some(e => e.name === name)) { nf.error = "같은 이름이 이미 있습니다"; this.renderRows(); return; }
+    nf.busy = true;
+    try {
+      await api("POST", `/api/fs/${enc(this.alias)}/mkdir`, { path: joinPath(this.path, name) });
+      this.newFolder = null;
+      await this.load(this.path, { select: name });
+      $("fbList").focus();
+    } catch (e) { nf.busy = false; nf.error = e.message; this.renderRows(); }
+  },
+
+  // ---------------- preview ----------------
+  schedulePreview() {
+    clearTimeout(this.pvTimer);
+    this.pvTimer = setTimeout(() => this.loadPreview(), 120);
+  },
+  async loadPreview() {
+    const e = this.view[this.sel];
+    if (!e) return this.renderPreview(null);
+    const path = joinPath(this.path, e.name), alias = this.alias;
+    if (this.pvReq && this.pvReq.path === path && this.pvReq.alias === alias) return;
+    this.pvReq = { path, alias };
+    const pv = $("pv");
+    // header immediately, body after fetch
+    this.renderPreview({ entry: e, path, kind: "loading" });
+    if (e.outside) return this.renderPreview({ entry: e, path, kind: "outside" });
+    if (e.type === "dir") return this.renderPreview({ entry: e, path, kind: "dir" });
+    try {
+      const r = await api("GET", `/api/fs/${enc(alias)}/preview?path=${enc(path)}`);
+      if (this.pvReq?.path !== path) return;
+      this.renderPreview({ ...r, entry: { ...e, ...r.entry }, path });
+    } catch (err) {
+      if (this.pvReq?.path !== path) return;
+      this.renderPreview({ entry: e, path, kind: "error", error: err.message });
+    }
+  },
+  rawUrl(path) { return `/api/fs/${enc(this.alias)}/raw?path=${enc(path)}`; },
+  renderPreview(p) {
+    const pv = $("pv");
+    if (!p) {
+      this.pvReq = null;
+      pv.classList.remove("open");
+      pv.innerHTML = `<div class="pv-empty">${icon("file")}
+        <div>파일을 선택하면 여기에서 미리 볼 수 있습니다</div>
+        <div class="keys">
+          <kbd>↑ ↓</kbd><span>이동</span><kbd>Enter</kbd><span>폴더 열기</span>
+          <kbd>Backspace</kbd><span>상위 폴더</span><kbd>/</kbd><span>찾기</span>
+          <kbd>Ctrl+L</kbd><span>경로 입력</span><kbd>.</kbd><span>숨김 파일</span>
+        </div></div>`;
+      return;
+    }
+    const e = p.entry, k = kindOf(e);
+    const abs = (this.home.replace(/\/$/, "") + "/" + p.path).replace(/\/$/, "");
+    const sub = e.type === "dir" ? "폴더" : [fmtSize(e.size), fmtTime(e.mtime), p.encoding].filter(Boolean).join(" · ");
+    pv.innerHTML = `
+      <div class="pv-head">
+        <button class="icon ghost pv-back" id="pvBack" title="목록으로">${icon("back")}</button>
+        <span class="kind ${k}">${icon(KIND_ICON[k])}</span>
+        <div class="pv-title"><div class="nm" title="${esc(e.name)}">${esc(e.name)}</div><div class="sub">${esc(sub)}</div></div>
+        <button class="icon ghost" id="pvCopy" title="전체 경로 복사: ${esc(abs)}">${icon("copy")}</button>
+        ${e.type === "file" || e.type === "dir" ? `<button id="pvDl">${icon("download")}${e.type === "dir" ? "tar.gz" : "다운로드"}</button>` : ""}
+      </div>
+      <div class="pv-tools" id="pvTools"></div>
+      <div class="pv-body" id="pvBody"></div>`;
+    $("pvBack").onclick = () => { pv.classList.remove("open"); $("fbList").focus(); };
+    $("pvCopy").onclick = () => copyText(abs, "경로 복사됨: " + abs);
+    if ($("pvDl")) $("pvDl").onclick = () => this.download(e);
+    const body = $("pvBody"), tools = $("pvTools");
+    const info = () => `<dl class="meta-grid">
+        <dt>경로</dt><dd>${esc(abs)}</dd>
+        ${e.type === "file" ? `<dt>크기</dt><dd>${fmtSize(e.size)} (${(e.size || 0).toLocaleString()} bytes)</dd>` : ""}
+        <dt>수정</dt><dd>${fmtFull(e.mtime)}</dd><dt>권한</dt><dd>${esc(e.mode || "")}</dd></dl>`;
+    const msg = (ic, title, detail = "") => `<div class="fb-msg">${icon(ic)}<div class="title">${title}</div><div class="detail">${detail}</div></div>`;
+    switch (p.kind) {
+      case "loading":
+        body.innerHTML = `<div class="fb-msg"><div class="spinner"></div></div>`; break;
+      case "error":
+        body.innerHTML = `<div class="fb-msg error">${icon("alert")}<div class="title">미리 볼 수 없습니다</div><div class="detail">${esc(p.error)}</div></div>` + info(); break;
+      case "outside":
+        body.innerHTML = msg("lock", "홈 디렉터리 밖을 가리키는 링크", "이 링크는 열거나 다운로드할 수 없습니다."); break;
+      case "dir":
+        body.innerHTML = `<div class="fb-msg"><svg class="i" style="color:var(--k-folder)"><use href="#i-folder"/></svg>
+          <div class="title">${esc(e.name)}</div><div class="detail">Enter 또는 더블클릭으로 열기</div>
+          <div style="display:flex;gap:8px"><button class="primary" id="pvOpen">폴더 열기</button></div></div>` + info();
+        $("pvOpen").onclick = () => this.open(); break;
+      case "image": {
+        body.innerHTML = `<div class="imgbox" id="imgbox"><img alt="${esc(e.name)}" src="${this.rawUrl(p.path)}"></div>`;
+        const img = body.querySelector("img");
+        img.onload = () => { tools.innerHTML = `<span>${img.naturalWidth} × ${img.naturalHeight}px</span><span class="grow"></span><span>클릭: 실제 크기 / 맞춤</span>`; };
+        img.onerror = () => { body.innerHTML = msg("image", "이미지를 표시할 수 없습니다", "브라우저가 지원하지 않는 형식일 수 있습니다. 다운로드해서 여세요.") + info(); };
+        img.onclick = () => $("imgbox").classList.toggle("actual");
+        break;
+      }
+      case "video":
+        body.innerHTML = `<div class="media"><video controls preload="metadata" src="${this.rawUrl(p.path)}"></video></div>`;
+        body.querySelector("video").onerror = () => { body.innerHTML = msg("video", "이 동영상 형식은 브라우저에서 재생할 수 없습니다", "다운로드해서 여세요.") + info(); };
+        break;
+      case "audio":
+        body.innerHTML = `<div class="media audio"><audio controls preload="metadata" src="${this.rawUrl(p.path)}"></audio></div>` + info(); break;
+      case "pdf":
+        body.innerHTML = `<iframe class="pdf" title="${esc(e.name)}" src="${this.rawUrl(p.path)}"></iframe>`; break;
+      case "toolarge":
+        body.innerHTML = msg(KIND_ICON[k], "미리 보기에는 너무 큰 파일입니다", "다운로드해서 여세요.") + info(); break;
+      case "special":
+        body.innerHTML = msg("file", "일반 파일이 아닙니다", "장치·소켓·FIFO 등은 미리 볼 수 없습니다.") + info(); break;
+      case "binary":
+        tools.innerHTML = `<span>바이너리 파일 · 앞 4KB 16진수 보기</span>`;
+        body.innerHTML = `<pre class="hex">${esc(p.hex)}</pre>`; break;
+      case "csv": case "text":
+        this.renderText(p, tools, body); break;
+    }
+  },
+  renderText(p, tools, body) {
+    const ext = extOf(p.entry.name);
+    const modes = ["원문"];
+    if (p.kind === "csv") modes.unshift("표");
+    if (ext === "md" || ext === "markdown") modes.unshift("렌더링");
+    let pretty = null;
+    if (ext === "json" && !p.truncated) { try { pretty = JSON.stringify(JSON.parse(p.text), null, 2); if (pretty !== p.text) modes.push("정렬"); } catch {} }
+    const st = this.pvState;
+    let mode = modes.includes(st.mode) ? st.mode : modes[0];
+    const wrap = st.wrap ?? false;
+    const lines = p.text.split("\n").length;
+    const draw = () => {
+      tools.innerHTML = `${modes.length > 1 ? `<div class="seg">${modes.map(m => `<button data-m="${m}" aria-selected="${m === mode}">${m}</button>`).join("")}</div>` : ""}
+        <span>${lines.toLocaleString()}줄</span><span class="grow"></span>
+        ${mode === "원문" || mode === "정렬" ? `<label style="display:inline-flex;gap:4px;align-items:center;cursor:pointer"><input type="checkbox" id="pvWrap" ${st.wrap ? "checked" : ""}> 줄바꿈</label>` : ""}`;
+      tools.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { mode = st.mode = b.dataset.m; draw(); });
+      if ($("pvWrap")) $("pvWrap").onchange = (ev) => { st.wrap = ev.target.checked; draw(); };
+      const banner = p.truncated ? `<p class="banner">파일이 커서 앞 256KB만 표시합니다. 전체 내용은 다운로드하세요.</p>` : "";
+      if (mode === "렌더링") body.innerHTML = banner + `<div class="md">${renderMarkdown(p.text)}</div>`;
+      else if (mode === "표") body.innerHTML = banner + csvTable(p.text, ext === "tsv" ? "\t" : ",");
+      else {
+        const src = mode === "정렬" ? pretty : p.text;
+        const ls = src.split("\n"); if (ls.length > 1 && ls[ls.length - 1] === "") ls.pop();
+        body.innerHTML = banner + `<div class="code${st.wrap ? " wrap" : ""}">${ls.map(l => `<div class="l"><span>${esc(l) || " "}</span></div>`).join("")}</div>`;
+      }
+      body.scrollTop = 0;
+    };
+    draw();
+  },
+};
+
+// --- tiny, safe markdown renderer (input is escaped first) ---
+function renderMarkdown(src) {
+  const inline = (s) => esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "[$1]")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const out = []; let list = null, para = [], code = null, table = null;
+  const flush = () => {
+    if (para.length) { out.push(`<p>${inline(para.join(" "))}</p>`); para = []; }
+    if (list) { out.push(`<${list.t}>${list.items.map(i => `<li>${inline(i)}</li>`).join("")}</${list.t}>`); list = null; }
+    if (table) { out.push(`<table>${table.map((r, i) => `<tr>${r.map(c => i ? `<td>${inline(c)}</td>` : `<th>${inline(c)}</th>`).join("")}</tr>`).join("")}</table>`); table = null; }
+  };
+  for (const line of src.split("\n")) {
+    if (code) { if (/^\s*```/.test(line)) { out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`); code = null; } else code.push(line); continue; }
+    if (/^\s*```/.test(line)) { flush(); code = []; continue; }
+    let m;
+    if ((m = /^(#{1,6})\s+(.*)/.exec(line))) { flush(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) { flush(); out.push("<hr>"); continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      const cells = line.trim().slice(1, -1).split("|").map(c => c.trim());
+      if (cells.every(c => /^:?-+:?$/.test(c))) continue;
+      if (!table) { flush(); table = []; } table.push(cells); continue;
+    }
+    if ((m = /^\s*([-*+]|\d+[.)])\s+(.*)/.exec(line))) {
+      const t = /\d/.test(m[1]) ? "ol" : "ul";
+      if (para.length || table) flush();
+      if (!list || list.t !== t) { flush(); list = { t, items: [] }; }
+      list.items.push(m[2]); continue;
+    }
+    if ((m = /^>\s?(.*)/.exec(line))) { flush(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); continue; }
+    if (!line.trim()) { flush(); continue; }
+    if (list && /^\s{2,}/.test(line)) { list.items[list.items.length - 1] += " " + line.trim(); continue; }
+    if (list || table) flush();
+    para.push(line.trim());
+  }
+  if (code) out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+  flush();
+  return out.join("\n");
+}
+function csvTable(text, delim) {
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length && rows.length < 501; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === delim) { row.push(cell); cell = ""; }
+    else if (c === "\n") { row.push(cell.replace(/\r$/, "")); rows.push(row); row = []; cell = ""; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  if (!rows.length) return "";
+  const [head, ...rest] = rows;
+  return `<table class="csv"><tr><th></th>${head.map(h => `<th>${esc(h)}</th>`).join("")}</tr>
+    ${rest.map((r, i) => `<tr><td class="n">${i + 1}</td>${r.map(c => `<td title="${esc(c)}">${esc(c)}</td>`).join("")}</tr>`).join("")}</table>
+    ${rows.length > 500 ? `<p class="banner">처음 500행만 표시합니다.</p>` : ""}`;
+}
+
+// ---------------- file browser events ----------------
+$("fbBack").onclick = () => FB.goBack();
+$("fbFwd").onclick = () => FB.goFwd();
+$("fbUp").onclick = () => FB.up();
+$("fbRefresh").onclick = () => FB.load(FB.path);
+$("fbNewFolder").onclick = () => FB.startNewFolder();
+$("fbUpload").onclick = () => $("fbFile").click();
+$("fbFile").onchange = (e) => { Uploads.add([...e.target.files], FB.path); e.target.value = ""; };
+$("fbHidden").onclick = () => { FB.hidden = !FB.hidden; store.set("fs.hidden", FB.hidden); FB.computeView(); FB.sel = -1; FB.renderAll(); };
+$("fbFilter").addEventListener("input", () => { FB.computeView(); FB.sel = FB.view.length ? 0 : -1; FB.renderRows(); FB.renderStatus(); if (FB.sel >= 0) FB.schedulePreview(); });
+$("fbFilter").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.target.value = ""; e.target.dispatchEvent(new Event("input")); $("fbList").focus(); }
+  if (e.key === "ArrowDown" || e.key === "Enter") { e.preventDefault(); $("fbList").focus(); if (e.key === "Enter") FB.open(); }
+});
+$("fbHead").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-sort]"); if (!b) return;
+  const key = b.dataset.sort;
+  FB.sort = { key, dir: FB.sort.key === key ? -FB.sort.dir : (key === "name" ? 1 : -1) };
+  store.set("fs.sort", FB.sort);
+  const cur = FB.view[FB.sel]?.name;
+  FB.computeView(); FB.sel = cur != null ? FB.view.findIndex(x => x.name === cur) : -1;
+  FB.renderHead(); FB.renderRows();
+});
+$("crumbs").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-p]");
+  if (b) FB.go(b.dataset.p); else FB.editPath();
+});
+$("fbRows").addEventListener("click", (e) => {
+  const row = e.target.closest(".fb-row[data-i]"); if (!row) return;
+  const i = +row.dataset.i;
+  if (e.target.closest("[data-dl]")) { FB.download(FB.view[i]); return; }
+  FB.setSel(i, { force: true });
+  if (matchMedia("(max-width: 860px)").matches) FB.open(i);
+});
+$("fbRows").addEventListener("dblclick", (e) => {
+  const row = e.target.closest(".fb-row[data-i]"); if (!row || e.target.closest("[data-dl]")) return;
+  FB.open(+row.dataset.i);
+});
+$("fbList").addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  const page = Math.max(1, Math.floor($("fbList").clientHeight / 32) - 2);
+  const k = e.key;
+  if (k === "ArrowDown") { e.preventDefault(); FB.setSel(FB.sel < 0 ? 0 : FB.sel + 1); }
+  else if (k === "ArrowUp") { e.preventDefault(); FB.setSel(FB.sel < 0 ? 0 : FB.sel - 1); }
+  else if (k === "PageDown") { e.preventDefault(); FB.setSel(FB.sel + page); }
+  else if (k === "PageUp") { e.preventDefault(); FB.setSel(FB.sel - page); }
+  else if (k === "Home") { e.preventDefault(); FB.setSel(0); }
+  else if (k === "End") { e.preventDefault(); FB.setSel(FB.view.length - 1); }
+  else if (k === "Enter" || (k === "ArrowRight" && FB.view[FB.sel]?.type === "dir")) { e.preventDefault(); FB.open(); }
+  else if (k === "Backspace" || k === "ArrowLeft") { e.preventDefault(); FB.up(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (S.tab !== "files" || $("modalBg").classList.contains("show")) return;
+  const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") { e.preventDefault(); FB.editPath(); return; }
+  if (e.key === "F5") { e.preventDefault(); FB.load(FB.path); return; }
+  if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); FB.goBack(); return; }
+  if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); FB.goFwd(); return; }
+  if (typing) return;
+  if (e.key === "/") { e.preventDefault(); $("fbFilter").focus(); $("fbFilter").select(); }
+  else if (e.key === ".") { e.preventDefault(); $("fbHidden").click(); }
+  else if (e.key === "Escape" && $("pv").classList.contains("open")) { $("pv").classList.remove("open"); $("fbList").focus(); }
+});
+
+// ---------------- list / preview splitter ----------------
+(() => {
+  const split = $("split"), body = split.parentElement;
+  const MIN_LIST = 280, MIN_PV = 260, DEFAULT = 0.44;
+  let ratio = store.get("fs.pvRatio", DEFAULT); // preview share of the width, kept as a ratio so it survives window resizes
+  const apply = () => {
+    const w = body.clientWidth;
+    if (!w) return;
+    const px = Math.round(Math.min(Math.max(ratio * w, MIN_PV), Math.max(MIN_PV, w - MIN_LIST)));
+    body.style.setProperty("--pv-w", px + "px");
+    split.setAttribute("aria-valuenow", String(Math.round(px / w * 100)));
+  };
+  const setRatio = (r, persist = true) => { ratio = Math.min(0.8, Math.max(0.15, r)); apply(); if (persist) store.set("fs.pvRatio", ratio); };
+  split.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    split.setPointerCapture(e.pointerId);
+    split.classList.add("dragging"); document.body.classList.add("resizing");
+    const rect = body.getBoundingClientRect();
+    const move = (ev) => setRatio((rect.right - ev.clientX) / rect.width, false);
+    const up = () => {
+      split.removeEventListener("pointermove", move); split.removeEventListener("pointerup", up); split.removeEventListener("pointercancel", up);
+      split.classList.remove("dragging"); document.body.classList.remove("resizing");
+      store.set("fs.pvRatio", ratio);
+    };
+    split.addEventListener("pointermove", move); split.addEventListener("pointerup", up); split.addEventListener("pointercancel", up);
+  });
+  split.addEventListener("dblclick", () => setRatio(DEFAULT));
+  split.addEventListener("keydown", (e) => {
+    const step = e.shiftKey ? 0.1 : 0.03;
+    if (e.key === "ArrowLeft") { e.preventDefault(); setRatio(ratio + step); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); setRatio(ratio - step); }
+    else if (e.key === "Home" || e.key === "Enter") { e.preventDefault(); setRatio(DEFAULT); }
+  });
+  new ResizeObserver(apply).observe(body);
+  window.addEventListener("pfm-prefs", () => { ratio = store.get("fs.pvRatio", ratio); apply(); });
+})();
+
+// ---------------- drag & drop ----------------
+(() => {
+  const fb = $("fb"), ov = $("dropOv");
+  let depth = 0, rowTarget = null;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  const setRow = (row) => {
+    if (rowTarget === row) return;
+    rowTarget?.classList.remove("drop");
+    rowTarget = row; row?.classList.add("drop");
+    const dir = row ? joinPath(FB.path, FB.view[+row.dataset.i].name) : FB.path;
+    $("dropText").innerHTML = FB.writable || row ? `놓으면 <b>${esc(tilde(dir))}</b> 에 업로드` : "이 폴더는 읽기 전용입니다";
+  };
+  fb.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; ov.classList.add("show"); });
+  fb.addEventListener("dragleave", () => { if (--depth <= 0) { depth = 0; ov.classList.remove("show"); setRow(null); } });
+  fb.addEventListener("dragover", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    const row = e.target.closest?.(".fb-row[data-i]");
+    setRow(row && FB.view[+row.dataset.i]?.type === "dir" && !FB.view[+row.dataset.i].outside ? row : null);
+    e.dataTransfer.dropEffect = FB.writable || rowTarget ? "copy" : "none";
+  });
+  fb.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0; ov.classList.remove("show");
+    const dir = rowTarget ? joinPath(FB.path, FB.view[+rowTarget.dataset.i].name) : FB.path;
+    setRow(null);
+    const items = [...(e.dataTransfer.items || [])];
+    const hasDir = items.some(it => it.webkitGetAsEntry?.()?.isDirectory);
+    const files = [...e.dataTransfer.files].filter((f, i) => !items[i]?.webkitGetAsEntry?.()?.isDirectory);
+    if (hasDir) toast("폴더 업로드는 지원하지 않습니다 — 파일만 올립니다. (폴더는 압축해서 올려 주세요)");
+    if (files.length) Uploads.add(files, dir);
+  });
+  // dropping outside the panel should not navigate away
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+})();
+
+// =====================================================================
+// uploads
+// =====================================================================
+const Uploads = {
+  items: [], running: 0, MAX: 2, seq: 0, collapsed: false,
+
+  async add(files, dir) {
+    if (!files.length) return;
+    const alias = FB.alias;
+    // find existing names in the target folder
+    let existing;
+    try {
+      existing = dir === FB.path ? FB.entries : (await api("GET", `/api/fs/${enc(alias)}/list?path=${enc(dir)}`)).entries;
+    } catch (e) { toast("업로드 대상 폴더를 확인할 수 없습니다: " + e.message); return; }
+    const names = new Set(existing.map(e => e.name));
+    const conflicts = files.filter(f => names.has(f.name));
+    const dirConflicts = conflicts.filter(f => existing.find(e => e.name === f.name).type === "dir");
+    let policy = "skip";
+    if (conflicts.length) {
+      policy = await askConflict(conflicts.map(f => f.name), dirConflicts.length > 0);
+      if (!policy) return;
+    }
+    for (const f of files) {
+      let name = f.name, overwrite = false;
+      if (names.has(name)) {
+        if (policy === "skip") continue;
+        if (policy === "overwrite" && !dirConflicts.includes(f)) overwrite = true;
+        else name = uniqueName(name, names);
+      }
+      names.add(name);
+      this.items.push({ id: ++this.seq, file: f, name, dir, alias, overwrite, state: "queued", loaded: 0, xhr: null, error: "" });
+    }
+    this.collapsed = false;
+    this.pump(); this.render();
+  },
+  pump() {
+    while (this.running < this.MAX) {
+      const it = this.items.find(i => i.state === "queued"); if (!it) break;
+      this.start(it);
+    }
+  },
+  start(it) {
+    this.running++;
+    it.state = "uploading"; it.loaded = 0; it.t0 = performance.now();
+    const xhr = new XMLHttpRequest(); it.xhr = xhr;
+    xhr.open("PUT", `/api/fs/${enc(it.alias)}/upload?path=${enc(joinPath(it.dir, it.name))}&overwrite=${it.overwrite ? 1 : 0}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => { it.loaded = e.loaded; this.renderItem(it); this.renderHead(); };
+    const finish = (state, error = "") => {
+      if (it.state !== "uploading") return;
+      it.state = state; it.error = error; it.xhr = null; this.running--;
+      if (state === "done") it.loaded = it.file.size;
+      this.render(); this.pump();
+      if (state === "done") this.refreshFolder(it);
+      this.autoCollapse();
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) finish("done");
+      else { let m = xhr.statusText; try { m = JSON.parse(xhr.responseText).error || m; } catch {} finish("fail", m); }
+    };
+    xhr.onerror = () => finish("fail", "네트워크 오류");
+    xhr.onabort = () => finish("cancel");
+    xhr.send(it.file);
+  },
+  refreshFolder(it) {
+    if (it.alias !== FB.alias) return;
+    clearTimeout(this.rt);
+    this.rt = setTimeout(() => {
+      if (it.dir === FB.path) FB.load(FB.path, { keepFilter: true, select: this.items.some(i => i.state === "uploading") ? undefined : it.name });
+    }, 300);
+  },
+  autoCollapse() {
+    // once everything finished cleanly, get out of the way (failures stay visible)
+    clearTimeout(this.ct);
+    if (this.active().length || this.items.some(i => i.state === "fail")) return;
+    this.ct = setTimeout(() => {
+      if (this.active().length || this.items.some(i => i.state === "fail")) return;
+      this.collapsed = true; $("tray").classList.add("collapsed");
+    }, 4000);
+  },
+  cancel(id) { const it = this.items.find(i => i.id === id); if (!it) return; if (it.xhr) it.xhr.abort(); else if (it.state === "queued") { it.state = "cancel"; this.render(); } },
+  retry(id) { const it = this.items.find(i => i.id === id); if (!it) return; it.state = "queued"; it.error = ""; this.pump(); this.render(); },
+  active() { return this.items.filter(i => i.state === "queued" || i.state === "uploading"); },
+  render() {
+    const tray = $("tray");
+    tray.classList.toggle("show", this.items.length > 0);
+    tray.classList.toggle("collapsed", this.collapsed);
+    $("trayList").innerHTML = this.items.slice().reverse().map(it => `<div class="up" id="up-${it.id}"></div>`).join("");
+    this.items.forEach(it => this.renderItem(it));
+    this.renderHead();
+  },
+  renderHead() {
+    const act = this.active(), all = this.items.filter(i => i.state !== "cancel");
+    const done = all.filter(i => i.state === "done").length, failed = all.filter(i => i.state === "fail").length;
+    const total = all.reduce((s, i) => s + i.file.size, 0) || 1;
+    const loaded = all.reduce((s, i) => s + (i.state === "done" ? i.file.size : i.loaded), 0);
+    $("trayTitle").textContent = act.length ? `업로드 중 ${done}/${all.length}` : failed ? `${failed}개 실패` : `업로드 완료 ${done}개`;
+    const speed = act.filter(i => i.state === "uploading").reduce((s, i) => s + i.loaded / Math.max(.1, (performance.now() - i.t0) / 1000), 0);
+    $("traySub").textContent = act.length && speed ? `${fmtSize(speed)}/s` : "";
+    $("trayBar").style.width = (loaded / total * 100).toFixed(1) + "%";
+    $("trayClose").title = act.length ? "모두 취소하고 닫기" : "닫기";
+  },
+  renderItem(it) {
+    const el = $("up-" + it.id); if (!el) return;
+    const pct = it.file.size ? Math.round(it.loaded / it.file.size * 100) : (it.state === "done" ? 100 : 0);
+    const st = { queued: "대기 중", uploading: `${pct}% · ${fmtSize(it.loaded)} / ${fmtSize(it.file.size)}`, done: `완료 · ${fmtSize(it.file.size)}`,
+      fail: "실패: " + it.error, cancel: "취소됨" }[it.state];
+    el.className = "up " + it.state;
+    el.innerHTML = `<div class="nm" title="${esc(it.name)}">${esc(it.name)}${it.name !== it.file.name ? ` <span style="color:var(--muted)">(이름 변경)</span>` : ""}${it.overwrite ? ` <span style="color:var(--warn)">(덮어쓰기)</span>` : ""}</div>
+      <div class="btns">${it.state === "fail" ? `<button class="icon ghost" data-retry="${it.id}" title="다시 시도">${icon("retry")}</button>` : ""}
+        ${it.state === "queued" || it.state === "uploading" ? `<button class="icon ghost" data-cancel="${it.id}" title="취소">${icon("x")}</button>` : ""}
+        ${it.state === "done" ? `<span style="color:var(--ok)">${icon("check")}</span>` : ""}</div>
+      <div class="st" title="${esc(tilde(it.dir))}">${esc(st)} → ${esc(it.alias)}:${esc(tilde(it.dir))}</div>
+      <div class="bar"><div style="width:${it.state === "fail" || it.state === "cancel" ? 100 : pct}%"></div></div>`;
+  },
+};
+$("trayList").addEventListener("click", (e) => {
+  const c = e.target.closest("[data-cancel]"), r = e.target.closest("[data-retry]");
+  if (c) Uploads.cancel(+c.dataset.cancel);
+  if (r) Uploads.retry(+r.dataset.retry);
+});
+$("trayCollapse").onclick = () => { Uploads.collapsed = !Uploads.collapsed; $("tray").classList.toggle("collapsed", Uploads.collapsed); };
+$("trayClose").onclick = () => {
+  if (Uploads.active().length && !confirm("진행 중인 업로드를 모두 취소할까요?")) return;
+  Uploads.items.forEach(i => { if (i.xhr) i.xhr.abort(); });
+  Uploads.items = []; Uploads.render();
+};
+window.addEventListener("beforeunload", (e) => { if (Uploads.active().length) { e.preventDefault(); e.returnValue = ""; } });
+
+function uniqueName(name, taken) {
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  for (let i = 1; ; i++) { const n = `${base} (${i})${ext}`; if (!taken.has(n)) return n; }
+}
+function askConflict(names, hasDir) {
+  return new Promise((resolve) => {
+    const bg = $("modalBg"), m = $("modal");
+    m.innerHTML = `<h3>${names.length === 1 ? "같은 이름의 파일이 있습니다" : `${names.length}개 파일의 이름이 겹칩니다`}</h3>
+      <p>대상 폴더에 이미 있는 항목입니다. 어떻게 할까요?${hasDir ? " (같은 이름의 폴더는 덮어쓰지 않고 이름을 바꿉니다)" : ""}</p>
+      <ul>${names.slice(0, 50).map(n => `<li>${esc(n)}</li>`).join("")}${names.length > 50 ? `<li>… 외 ${names.length - 50}개</li>` : ""}</ul>
+      <div class="row">
+        <button data-r="">취소</button>
+        <button data-r="skip">건너뛰기</button>
+        <button data-r="rename" title="'이름 (1).ext' 형식으로 저장">둘 다 유지</button>
+        <button data-r="overwrite" class="primary">덮어쓰기</button>
+      </div>`;
+    bg.classList.add("show");
+    const done = (r) => { bg.classList.remove("show"); document.removeEventListener("keydown", key, true); resolve(r || null); };
+    const key = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(null); } };
+    document.addEventListener("keydown", key, true);
+    m.querySelectorAll("[data-r]").forEach(b => b.onclick = () => done(b.dataset.r));
+    bg.onclick = (e) => { if (e.target === bg) done(null); };
+    m.querySelector('[data-r="rename"]').focus();
+  });
+}
+
+// =====================================================================
+// ssh paths (per OS), shown at the bottom of the sidebar
+// =====================================================================
+const PATH_FIELDS = [
+  { k: "sshBin", short: "ssh", label: "ssh 실행 파일", flag: "--ssh",
+    hint: { windows: String.raw`예: C:\Windows\System32\OpenSSH\ssh.exe 또는 C:\Program Files\Git\usr\bin\ssh.exe`,
+            macos: "예: /usr/bin/ssh 또는 /opt/homebrew/bin/ssh", linux: "예: /usr/bin/ssh" } },
+  { k: "sshConfig", short: "config", label: "ssh config 파일", flag: "--ssh-config",
+    hint: { windows: String.raw`예: ~/.ssh/config (= %USERPROFILE%\.ssh\config)`, macos: "예: ~/.ssh/config", linux: "예: ~/.ssh/config" } },
+];
+const SRC_LABEL = { auto: "자동", saved: "지정", cli: "옵션" };
+let SETTINGS = null;
+function renderPaths(st) {
+  SETTINGS = st;
+  $("paths").innerHTML = `<div class="ph"><span>SSH 경로</span><span class="os">${esc(st.osLabel)}</span></div>` +
+    PATH_FIELDS.map(f => {
+      const p = st.paths[f.k];
+      const tip = `${f.label}: ${p.resolved}${p.ok ? "" : " — 찾을 수 없음"} · 클릭해서 변경`;
+      return `<button class="pr${p.ok ? "" : " bad"}" data-path="${f.k}" title="${esc(tip)}">
+        <span class="k">${f.short}</span><span class="v"><bdi>${esc(p.value)}</bdi></span>
+        <span class="src ${p.source}">${p.ok ? SRC_LABEL[p.source] : "없음"}</span></button>`;
+    }).join("");
+}
+$("paths").addEventListener("click", (e) => { const b = e.target.closest("[data-path]"); if (b) editPaths(b.dataset.path); });
+function editPaths(focusKey) {
+  const st = SETTINGS, bg = $("modalBg"), m = $("modal");
+  m.innerHTML = `<h3>SSH 경로 <span style="font-weight:400;color:var(--muted)">· ${esc(st.osLabel)}</span></h3>
+    <p>비워 두면 자동으로 찾습니다. 이 값은 <b>${esc(st.osLabel)}</b>용으로만 저장되어, 같은 profiles.json을 다른 OS에서 써도 섞이지 않습니다.</p>
+    <form id="pathForm">
+    ${PATH_FIELDS.map(f => {
+      const p = st.paths[f.k], cli = p.source === "cli";
+      return `<label class="fld">${f.label}
+        <input type="text" name="${f.k}" spellcheck="false" autocomplete="off" placeholder="${esc(p.auto)}" ${cli ? "disabled" : ""}>
+        <small class="${p.ok ? "" : "bad"}">${cli ? `실행 옵션 <code>${f.flag}</code>으로 지정됨: ${esc(p.value)}`
+          : `${p.ok ? "현재" : "찾을 수 없음"}: ${esc(p.resolved)}<br>${esc(f.hint[st.os] || "")}`}</small></label>`;
+    }).join("")}
+    <div class="err" id="pathErr"></div>
+    <div class="row"><button type="button" data-r="cancel">취소</button><button type="button" data-r="reset" title="두 칸을 비워 자동 감지로">자동으로 되돌리기</button>
+      <button type="submit" class="primary">저장</button></div></form>`;
+  const form = $("pathForm");
+  for (const f of PATH_FIELDS) form.elements[f.k].value = st.paths[f.k].saved || "";
+  bg.classList.add("show");
+  const close = () => { bg.classList.remove("show"); document.removeEventListener("keydown", key, true); };
+  const key = (e) => { if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } };
+  document.addEventListener("keydown", key, true);
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+  m.querySelector('[data-r="cancel"]').onclick = close;
+  m.querySelector('[data-r="reset"]').onclick = () => { for (const f of PATH_FIELDS) if (!form.elements[f.k].disabled) form.elements[f.k].value = ""; form.elements.sshBin.focus(); };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = {};
+    for (const f of PATH_FIELDS) body[f.k] = form.elements[f.k].value.trim();
+    try {
+      const prevCfg = st.paths.sshConfig.resolved;
+      const res = await api("PUT", "/api/settings", body);
+      close();
+      if (res.paths.sshConfig.resolved !== prevCfg) { location.reload(); return; }  // host list changes
+      renderPaths(res); toast("저장됨 — 새로 시작하는 터널과 파일 연결부터 적용됩니다");
+    } catch (err) { $("pathErr").textContent = err.message; }
+  };
+  const inp = form.elements[focusKey];
+  (inp && !inp.disabled ? inp : form.querySelector("input:not([disabled])"))?.focus();
+}
+
+// =====================================================================
+// polling & init
+// =====================================================================
+async function poll() {
+  try {
+    const st = await api("GET", "/api/state");
+    S.tunnels = st.tunnels;
+    S.hosts = st.hosts;
+    for (const a in st.profiles) if (!S.profiles[a]) S.profiles[a] = st.profiles[a];
+    renderHosts(); renderStatus(); loadLog();
+  } catch {}
+}
+(async function init() {
+  const st = await api("GET", "/api/state");
+  Object.assign(S, { hosts: st.hosts, profiles: st.profiles, tunnels: st.tunnels });
+  store.server = st.ui || {};
+  FB.sort = store.get("fs.sort", FB.sort); FB.hidden = store.get("fs.hidden", FB.hidden);
+  window.dispatchEvent(new Event("pfm-prefs"));
+  renderPaths(st.settings);
+  $("meta").innerHTML = `<bdi>저장: ${esc(st.dataFile)}</bdi>`; $("meta").title = "규칙·설정 저장 파일: " + st.dataFile;
+  if (!S.hosts.length) {
+    renderHosts();
+    document.querySelector(".main").insertAdjacentHTML("beforeend",
+      `<div class="panel empty">ssh config에서 호스트를 찾지 못했습니다: ${esc(st.sshConfig)}<br>
+        <button class="primary" style="margin-top:12px" onclick="editPaths('sshConfig')">ssh config 경로 바꾸기</button></div>`);
+    return;
+  }
+  const saved = store.get("host", null);
+  S.alias = S.hosts.some(h => h.alias === saved) ? saved : S.hosts[0].alias;
+  renderHosts(); renderHostInfo(); renderStatus(); renderRules();
+  FB.renderPreview(null);
+  setTab(location.hash === "#files" ? "files" : store.get("tab", "ports"), false);
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>
