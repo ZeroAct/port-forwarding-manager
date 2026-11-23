@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import codecs
 import collections
+import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -327,6 +330,11 @@ def os_key() -> str:
 
 
 OS_LABEL = {"windows": "Windows", "macos": "macOS", "linux": "Linux"}
+CONFIG_MAX = 1_000_000
+
+
+class Conflict(Exception):
+    pass
 DEFAULT_SSH_CONFIG = "~/.ssh/config"
 
 
@@ -390,6 +398,78 @@ class App:
         ps["sshConfig"]["resolved"] = str(self.ssh_config)
         ps["sshConfig"]["ok"] = self.ssh_config.is_file()
         return {"os": self.os, "osLabel": OS_LABEL[self.os], "paths": ps}
+
+    # ---- ssh config file editing ----
+    def read_ssh_config(self) -> dict:
+        p = self.ssh_config
+        out = {"path": str(p), "exists": p.is_file(), "text": "", "version": "",
+               "backup": str(p.with_name(p.name + ".pfm-bak"))}
+        if out["exists"]:
+            raw = p.read_bytes()
+            if len(raw) > CONFIG_MAX:
+                raise ValueError("파일이 너무 커서 편집할 수 없습니다")
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                raise ValueError("UTF-8 텍스트가 아니라서 편집할 수 없습니다")
+            out["text"] = text.replace("\r\n", "\n")
+            out["version"] = hashlib.sha256(raw).hexdigest()[:16]
+        return out
+
+    def check_ssh_config(self, text: str) -> str | None:
+        """Let ssh itself parse the new text (`ssh -G`); returns its error, or None."""
+        if not resolve_ssh_bin(self.mgr.ssh_bin):
+            return None  # cannot check without ssh; don't block saving
+        self.mgr.run_dir.mkdir(parents=True, exist_ok=True)
+        tmp = self.mgr.run_dir / "config-check.conf"
+        tmp.write_text(text, encoding="utf-8")
+        try:
+            r = subprocess.run([self.mgr.ssh_bin, "-F", str(tmp), "-G", "pfm-config-check"],
+                               capture_output=True, text=True, timeout=10,
+                               stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        finally:
+            tmp.unlink(missing_ok=True)
+        if r.returncode == 0:
+            return None
+        err = re.sub(r"\S*config-check\.conf", "config", r.stderr or "").strip()
+        return err[-2000:] or f"ssh가 설정을 읽지 못했습니다 (exit {r.returncode})"
+
+    def write_ssh_config(self, body: dict) -> dict:
+        text = str(body.get("text", ""))
+        if len(text) > CONFIG_MAX:
+            raise ValueError("내용이 너무 깁니다")
+        cur = self.read_ssh_config()
+        if not body.get("force") and cur["version"] != str(body.get("version") or ""):
+            raise Conflict()
+        if not body.get("skipCheck"):
+            err = self.check_ssh_config(text)
+            if err:
+                return {"ok": False, "checkError": err}
+        p = self.ssh_config
+        old = p.read_bytes() if cur["exists"] else b""
+        eol = "\r\n" if b"\r\n" in old else "\n"     # keep the file's line endings
+        data = text.replace("\r\n", "\n")
+        if data and not data.endswith("\n"):
+            data += "\n"
+        raw = data.replace("\n", eol).encode("utf-8")
+        if old.startswith(codecs.BOM_UTF8):
+            raw = codecs.BOM_UTF8 + raw
+        if cur["exists"]:
+            shutil.copy2(p, cur["backup"])
+            # write in place: keeps owner, mode / Windows ACL and symlinks, which ssh checks
+            with open(p, "r+b") as f:
+                f.write(raw)
+                f.truncate()
+                f.flush()
+                os.fsync(f.fileno())
+        else:
+            p.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(raw)
+        return {"ok": True, **self.read_ssh_config()}
 
     def save_settings(self, body: dict) -> dict:
         values = {}
@@ -561,6 +641,11 @@ def make_handler(app: App):
                 return self._send(200, app.state())
             if len(parts) == 4 and parts[:2] == ["api", "fs"] and self._files("GET", parts[2], parts[3]):
                 return
+            if parts == ["api", "sshconfig"]:
+                try:
+                    return self._send(200, app.read_ssh_config())
+                except (ValueError, OSError) as e:
+                    return self._send(400, {"error": str(e)})
             if len(parts) == 4 and parts[:2] == ["api", "tunnels"] and parts[3] == "log":
                 return self._send(200, {"log": list(app.mgr.get(parts[2]).log)})
             self._send(404, {"error": "not found"})
@@ -585,6 +670,13 @@ def make_handler(app: App):
                 try:
                     return self._send(200, app.save_settings(body))
                 except ValueError as e:
+                    return self._send(400, {"error": str(e)})
+            if parts == ["api", "sshconfig"] and isinstance(body, dict):
+                try:
+                    return self._send(200, app.write_ssh_config(body))
+                except Conflict:
+                    return self._send(409, {"error": "다른 곳에서 파일이 바뀌었습니다", "code": "conflict"})
+                except (ValueError, OSError) as e:
                     return self._send(400, {"error": str(e)})
             if parts == ["api", "ui"] and isinstance(body, dict):
                 app.store.save_ui(body)

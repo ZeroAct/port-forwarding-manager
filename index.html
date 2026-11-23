@@ -80,6 +80,42 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .paths .pr .src.saved { color: var(--accent); background: var(--accent-weak); }
 .paths .pr.bad .v { color: var(--err); }
 .paths .pr.bad .src { color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+/* ssh config editor */
+.ed-bg { position: fixed; inset: 0; background: rgba(10, 14, 20, .45); z-index: 52; display: grid; place-items: center; padding: 24px; }
+.ed-bg[hidden] { display: none; }
+.ed { background: var(--panel); border-radius: 12px; box-shadow: var(--shadow); width: min(980px, 100%); height: min(760px, 100%);
+  display: flex; flex-direction: column; overflow: hidden; }
+.ed-hd { display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 18px; border-bottom: 1px solid var(--line); }
+.ed-hd .ttl { min-width: 0; flex: 1; display: flex; align-items: baseline; gap: 10px; }
+.ed-hd h3 { margin: 0; font-size: 15px; white-space: nowrap; }
+.ed-hd code { font: 12px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-hd .dirty { color: var(--warn); font-size: 12px; white-space: nowrap; }
+.ed-body { position: relative; flex: 1; min-height: 0; display: flex; background: var(--input); }
+.ed-gut { margin: 0; padding: 12px 10px 12px 0; min-width: 44px; text-align: right; color: var(--faint); user-select: none;
+  font: 13px/20px var(--mono); border-right: 1px solid var(--line); overflow: hidden; background: var(--bg); }
+.ed-gut div { padding-left: 10px; }
+.ed-gut .cur { color: var(--text); }
+.ed-code { position: relative; flex: 1; min-width: 0; }
+.ed-code pre, .ed-code textarea { position: absolute; inset: 0; margin: 0; padding: 12px 14px; border: 0; border-radius: 0;
+  font: 13px/20px var(--mono); tab-size: 4; white-space: pre; overflow: auto; letter-spacing: 0; }
+.ed-code pre { pointer-events: none; color: var(--text); overflow: hidden; }
+.ed-code textarea, .ed-code textarea:focus { background: transparent; color: transparent; caret-color: var(--text); resize: none; outline: none; box-shadow: none; border: 0; }
+.ed-code textarea::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: transparent; }
+.ed-code .c { color: var(--faint); font-style: italic; }
+.ed-code .k { color: var(--accent); }
+.ed-code .h { color: var(--ok); font-weight: 700; }
+.ed-code .hv { font-weight: 700; }
+.ed-code .w { color: var(--warn); }
+.ed-msg { border-top: 1px solid var(--line); padding: 10px 18px; font-size: 12.5px; display: flex; gap: 10px; align-items: flex-start; }
+.ed-msg[hidden] { display: none; }
+.ed-msg.bad { background: color-mix(in srgb, var(--err) 9%, var(--panel)); color: var(--err); }
+.ed-msg.warn { background: color-mix(in srgb, var(--warn) 10%, var(--panel)); }
+.ed-msg pre { margin: 0; flex: 1; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; color: inherit; }
+.ed-msg .acts { display: flex; gap: 6px; flex-shrink: 0; }
+.ed-ft { display: flex; align-items: center; gap: 8px; padding: 10px 14px 10px 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.ed-ft .grow { flex: 1; }
+.ed-ft kbd { font: 10.5px var(--mono); opacity: .75; margin-left: 4px; }
+@media (max-width: 860px) { .ed-bg { padding: 0; } .ed { border-radius: 0; width: 100%; height: 100%; } }
 .modal label.fld { display: block; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
 .modal label.fld input { display: block; width: 100%; margin-top: 4px; font: 12.5px var(--mono); }
 .modal .fld small { display: block; margin-top: 4px; font-weight: 400; color: var(--faint); word-break: break-all; }
@@ -556,6 +592,23 @@ table.csv td.n { color: var(--faint); text-align: right; background: var(--bg); 
   <div class="tray-list" id="trayList"></div>
 </div>
 
+<div class="ed-bg" id="cfgBg" hidden>
+  <section class="ed" role="dialog" aria-modal="true" aria-labelledby="cfgTitle">
+    <header class="ed-hd">
+      <div class="ttl"><h3 id="cfgTitle">ssh config</h3><code id="cfgPath"></code><span class="dirty" id="cfgDirty" hidden>● 저장 안 됨</span></div>
+      <button class="ghost" id="cfgPathBtn" title="다른 config 파일 사용">경로 변경</button>
+      <button class="ghost" id="cfgClose" title="닫기 (Esc)" aria-label="닫기"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="ed-body">
+      <div class="ed-gut" id="cfgGut" aria-hidden="true"></div>
+      <div class="ed-code"><pre id="cfgHl" aria-hidden="true"></pre>
+        <textarea id="cfgText" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-label="ssh config 내용"></textarea></div>
+    </div>
+    <div class="ed-msg" id="cfgMsg" hidden></div>
+    <footer class="ed-ft"><span id="cfgInfo"></span><span class="grow"></span>
+      <button id="cfgCancel">닫기</button><button class="primary" id="cfgSave">저장<kbd>Ctrl S</kbd></button></footer>
+  </section>
+</div>
 <div class="modal-bg" id="modalBg"><div class="modal" role="dialog" aria-modal="true" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 
@@ -696,7 +749,7 @@ $("hostFilter").addEventListener("keydown", (e) => {
   else if (e.key === "Escape") { e.target.value = ""; renderHosts(); e.target.blur(); closeSide(); }
 });
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && $("cfgBg").hidden) {
     e.preventDefault();
     if (matchMedia("(max-width: 860px)").matches) $("side").classList.add("open");
     $("hostFilter").focus(); $("hostFilter").select();
@@ -1537,7 +1590,7 @@ $("fbList").addEventListener("keydown", (e) => {
   else if (k === "Backspace" || k === "ArrowLeft") { e.preventDefault(); FB.up(); }
 });
 document.addEventListener("keydown", (e) => {
-  if (S.tab !== "files" || $("modalBg").classList.contains("show")) return;
+  if (S.tab !== "files" || $("modalBg").classList.contains("show") || !$("cfgBg").hidden) return;
   const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName);
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") { e.preventDefault(); FB.editPath(); return; }
   if (e.key === "F5") { e.preventDefault(); FB.load(FB.path); return; }
@@ -1798,13 +1851,16 @@ function renderPaths(st) {
   $("paths").innerHTML = `<div class="ph"><span>SSH 경로</span><span class="os">${esc(st.osLabel)}</span></div>` +
     PATH_FIELDS.map(f => {
       const p = st.paths[f.k];
-      const tip = `${f.label}: ${p.resolved}${p.ok ? "" : " — 찾을 수 없음"} · 클릭해서 변경`;
+      const tip = `${f.label}: ${p.resolved}${p.ok ? "" : " — 찾을 수 없음"} · ${f.k === "sshConfig" ? "클릭해서 내용 편집" : "클릭해서 변경"}`;
       return `<button class="pr${p.ok ? "" : " bad"}" data-path="${f.k}" title="${esc(tip)}">
         <span class="k">${f.short}</span><span class="v"><bdi>${esc(p.value)}</bdi></span>
         <span class="src ${p.source}">${p.ok ? SRC_LABEL[p.source] : "없음"}</span></button>`;
     }).join("");
 }
-$("paths").addEventListener("click", (e) => { const b = e.target.closest("[data-path]"); if (b) editPaths(b.dataset.path); });
+$("paths").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-path]"); if (!b) return;
+  if (b.dataset.path === "sshConfig") CfgEd.open(); else editPaths(b.dataset.path);
+});
 function editPaths(focusKey) {
   const st = SETTINGS, bg = $("modalBg"), m = $("modal");
   m.innerHTML = `<h3>SSH 경로 <span style="font-weight:400;color:var(--muted)">· ${esc(st.osLabel)}</span></h3>
@@ -1846,6 +1902,153 @@ function editPaths(focusKey) {
 }
 
 // =====================================================================
+// ssh config editor
+// =====================================================================
+const CFG_HOST_RE = /^(\s*)(Host|Match)(\s*=\s*|\s+|$)(.*)$/i;
+function hlConfigLine(line) {
+  if (/^\s*#/.test(line)) return `<span class="c">${esc(line)}</span>`;
+  const h = CFG_HOST_RE.exec(line);
+  if (h) return `${h[1]}<span class="h">${esc(h[2])}</span>${esc(h[3])}<span class="hv">${esc(h[4])}</span>`;
+  const m = /^(\s*)(\S+?)(\s*=\s*|\s+)(.*)$/.exec(line);
+  if (!m) return esc(line);
+  const fwd = /^(local|remote|dynamic)forward$/i.test(m[2]);
+  return `${m[1]}<span class="k">${esc(m[2])}</span>${esc(m[3])}${fwd ? `<span class="w">${esc(m[4])}</span>` : esc(m[4])}`;
+}
+function configHosts(text) {
+  const out = [];
+  for (const line of text.split("\n")) {
+    const m = /^\s*Host(?:\s*=\s*|\s+)(.+)$/i.exec(line);
+    if (m) for (const t of m[1].trim().split(/\s+/)) if (!/[*?!]/.test(t)) out.push(t);
+  }
+  return out;
+}
+const CfgEd = {
+  version: "", saved: "", busy: false,
+  get ta() { return $("cfgText"); },
+  async open() {
+    let c;
+    try { c = await api("GET", "/api/sshconfig"); }
+    catch (err) { toast("ssh config를 열 수 없습니다: " + err.message); return; }
+    this.load(c);
+    $("cfgBg").hidden = false;
+    this.ta.focus(); this.ta.setSelectionRange(0, 0); this.ta.scrollTop = 0;
+  },
+  load(c) {
+    this.version = c.version; this.saved = c.text; this.backup = c.backup;
+    $("cfgPath").textContent = c.path; $("cfgPath").title = c.path;
+    this.ta.value = c.text;
+    this.msg(c.exists ? null : { kind: "warn", text: "파일이 아직 없습니다. 저장하면 새로 만듭니다." });
+    this.sync();
+  },
+  dirty() { return this.ta.value !== this.saved; },
+  sync() {
+    const v = this.ta.value;
+    $("cfgHl").innerHTML = v.split("\n").map(hlConfigLine).join("\n") + "\n";
+    const n = v.split("\n").length, cur = v.slice(0, this.ta.selectionStart).split("\n").length;
+    let g = ""; for (let i = 1; i <= n; i++) g += `<div${i === cur ? ' class="cur"' : ""}>${i}</div>`;
+    $("cfgGut").innerHTML = g;
+    const hosts = configHosts(v);
+    $("cfgInfo").textContent = `호스트 ${hosts.length}개 · ${n}줄 · ${cur}번째 줄`;
+    $("cfgDirty").hidden = !this.dirty();
+    this.scroll();
+  },
+  scroll() {
+    $("cfgHl").scrollTop = this.ta.scrollTop; $("cfgHl").scrollLeft = this.ta.scrollLeft;
+    $("cfgGut").scrollTop = this.ta.scrollTop;
+  },
+  msg(m) {
+    const el = $("cfgMsg");
+    if (!m) { el.hidden = true; el.innerHTML = ""; return; }
+    el.hidden = false; el.className = "ed-msg " + (m.kind || "");
+    el.innerHTML = `<pre></pre><div class="acts">${(m.actions || []).map((a, i) => `<button data-a="${i}"${a.primary ? ' class="primary"' : ""}>${esc(a.label)}</button>`).join("")}</div>`;
+    el.querySelector("pre").textContent = m.text;
+    el.querySelectorAll("[data-a]").forEach(b => b.onclick = () => m.actions[+b.dataset.a].run());
+  },
+  async save(opts = {}) {
+    if (this.busy) return;
+    this.busy = true; $("cfgSave").disabled = true;
+    try {
+      const res = await api("PUT", "/api/sshconfig", { text: this.ta.value, version: this.version, ...opts });
+      if (!res.ok) {
+        this.msg({ kind: "bad", text: "ssh가 이 설정을 읽지 못했습니다:\n" + res.checkError,
+          actions: [{ label: "그래도 저장", run: () => this.save({ ...opts, skipCheck: true }) }] });
+        return;
+      }
+      const keep = this.ta.value;
+      this.version = res.version; this.saved = keep;
+      this.msg(null); this.sync();
+      toast(`저장됨 — 이전 내용은 ${res.backup.split(/[\\/]/).pop()}에 백업했습니다`);
+      await refreshHosts();
+    } catch (err) {
+      if (err.code === "conflict") {
+        this.msg({ kind: "bad", text: "편집하는 동안 다른 곳에서 파일이 바뀌었습니다.",
+          actions: [
+            { label: "다시 불러오기", run: async () => { if (!this.dirty() || confirm("지금 고친 내용을 버리고 파일을 다시 불러올까요?")) this.load(await api("GET", "/api/sshconfig")); } },
+            { label: "내 내용으로 덮어쓰기", primary: true, run: () => this.save({ ...opts, force: true }) },
+          ] });
+      } else this.msg({ kind: "bad", text: "저장하지 못했습니다: " + err.message });
+    } finally { this.busy = false; $("cfgSave").disabled = false; }
+  },
+  close(force) {
+    if (!force && this.dirty() && !confirm("저장하지 않은 변경 사항이 있습니다. 닫을까요?")) return false;
+    $("cfgBg").hidden = true; this.msg(null);
+    $("paths").querySelector('[data-path="sshConfig"]')?.focus();
+    return true;
+  },
+  key(e) {
+    const ta = this.ta;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); this.save(); return; }
+    if (e.key === "Escape") { e.preventDefault(); this.close(); return; }
+    if (e.key === "Tab" && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      const { selectionStart: a, selectionEnd: b, value: v } = ta;
+      const ls = v.lastIndexOf("\n", a - 1) + 1;
+      if (a === b && !e.shiftKey) { document.execCommand("insertText", false, "    "); return; }
+      // indent / outdent the selected lines
+      const le = b > a && v[b - 1] === "\n" ? b - 1 : b;
+      const block = v.slice(ls, le).split("\n");
+      const out = block.map(l => e.shiftKey ? l.replace(/^( {1,4}|\t)/, "") : "    " + l).join("\n");
+      ta.setSelectionRange(ls, le); document.execCommand("insertText", false, out);
+      ta.setSelectionRange(ls, ls + out.length);
+      return;
+    }
+    if (e.key === "Enter" && !e.isComposing) {
+      // keep indentation; indent after a Host/Match line
+      const { selectionStart: a, value: v } = ta;
+      const line = v.slice(v.lastIndexOf("\n", a - 1) + 1, a);
+      let ind = /^\s*/.exec(line)[0];
+      if (CFG_HOST_RE.test(line) && !ind) ind = "    ";
+      e.preventDefault(); document.execCommand("insertText", false, "\n" + ind);
+    }
+  },
+};
+$("cfgText").addEventListener("input", () => CfgEd.sync());
+$("cfgText").addEventListener("scroll", () => CfgEd.scroll());
+$("cfgText").addEventListener("keydown", (e) => CfgEd.key(e));
+["click", "keyup"].forEach(t => $("cfgText").addEventListener(t, () => {
+  const v = $("cfgText"), cur = v.value.slice(0, v.selectionStart).split("\n").length;
+  const old = $("cfgGut").querySelector(".cur"); if (old?.textContent == cur) return;
+  old?.classList.remove("cur"); $("cfgGut").children[cur - 1]?.classList.add("cur");
+  $("cfgInfo").textContent = $("cfgInfo").textContent.replace(/\d+번째 줄$/, `${cur}번째 줄`);
+}));
+$("cfgSave").onclick = () => CfgEd.save();
+$("cfgCancel").onclick = $("cfgClose").onclick = () => CfgEd.close();
+$("cfgPathBtn").onclick = () => { if (CfgEd.close()) editPaths("sshConfig"); };
+$("cfgBg").addEventListener("keydown", (e) => { if (e.key === "Escape" && e.target !== CfgEd.ta) { e.preventDefault(); CfgEd.close(); } });
+window.addEventListener("beforeunload", (e) => { if (!$("cfgBg").hidden && CfgEd.dirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+// re-read hosts after the ssh config changed
+async function refreshHosts() {
+  const st = await api("GET", "/api/state");
+  if (!S.hosts.length || !st.hosts.length) { location.reload(); return; }
+  S.hosts = st.hosts; S.tunnels = st.tunnels;
+  for (const a in st.profiles) if (!S.profiles[a]) S.profiles[a] = st.profiles[a];
+  if (!S.hosts.some(h => h.alias === S.alias)) selectHost(S.hosts[0].alias);
+  else renderHostInfo();
+  renderHosts(); renderStatus();
+}
+
+// =====================================================================
 // polling & init
 // =====================================================================
 async function poll() {
@@ -1869,7 +2072,8 @@ async function poll() {
     renderHosts();
     document.querySelector(".main").insertAdjacentHTML("beforeend",
       `<div class="panel empty">ssh config에서 호스트를 찾지 못했습니다: ${esc(st.sshConfig)}<br>
-        <button class="primary" style="margin-top:12px" onclick="editPaths('sshConfig')">ssh config 경로 바꾸기</button></div>`);
+        <span style="display:inline-flex;gap:8px;margin-top:12px"><button class="primary" onclick="CfgEd.open()">ssh config 편집</button>
+        <button onclick="editPaths('sshConfig')">경로 바꾸기</button></span></div>`);
     return;
   }
   const saved = store.get("host", null);
